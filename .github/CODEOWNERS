@@ -1,36 +1,36 @@
-# Replace the placeholders with real GitHub usernames.
+# Generated from scripts/team.json. Update that file, then update this one.
 # GitHub requests a review from the owner automatically when a PR touches their files.
 
 # --- Backend ---
-# Bell — API, database, contract
-/backend/src/api/        @BELL_USERNAME
-/backend/prisma/         @BELL_USERNAME
-/contracts/              @BELL_USERNAME
+# Bell - API, database, contract
+/backend/src/api/        @TK87tech
+/backend/prisma/         @TK87tech
+/contracts/              @TK87tech
 
-# Relay — queue and realtime
-/backend/src/queue/      @RELAY_USERNAME
-/backend/src/workers/    @RELAY_USERNAME
-/backend/src/realtime/   @RELAY_USERNAME
+# Relay - queue and realtime
+/backend/src/queue/      @Ogbodo-Oluebube
+/backend/src/workers/    @Ogbodo-Oluebube
+/backend/src/realtime/   @Ogbodo-Oluebube
 
-# Ember — outside providers
-/backend/src/channels/   @EMBER_USERNAME
-/backend/src/templates/  @EMBER_USERNAME
+# Ember - outside providers
+/backend/src/channels/   @calhassan101
+/backend/src/templates/  @calhassan101
 
 # --- Frontend ---
-# Prism — shell and shared UI. Reviews anything shared.
-/frontend/src/app/          @PRISM_USERNAME
-/frontend/src/components/   @PRISM_USERNAME
-/frontend/tailwind.config.* @PRISM_USERNAME
+# Prism - shell and shared UI. Reviews anything shared.
+/frontend/src/app/          @Giftedgirl-cyber
+/frontend/src/components/   @Giftedgirl-cyber
+/frontend/tailwind.config.* @Giftedgirl-cyber
 
-# Pulse — notification surface
-/frontend/src/features/notifications/   @PULSE_USERNAME @PRISM_USERNAME
+# Pulse - notification surface
+/frontend/src/features/notifications/   @codesXdura @Giftedgirl-cyber
 
-# Beacon — preferences surface
-/frontend/src/features/preferences/     @BEACON_USERNAME @PRISM_USERNAME
+# Beacon - preferences surface
+/frontend/src/features/preferences/     @davididowu0830 @Giftedgirl-cyber
 
 # --- Infrastructure ---
-# Warden — CI, deploys, tests
-/.github/           @WARDEN_USERNAME
-/docker-compose.yml @WARDEN_USERNAME
-/backend/tests/     @WARDEN_USERNAME
-/frontend/tests/    @WARDEN_USERNAME
+# Warden - CI, deploys, tests. Falls to the repo owner until that seat is filled.
+/.github/           @TK87tech
+/docker-compose.yml @TK87tech
+/backend/tests/     @TK87tech
+/frontend/tests/    @TK87tech
