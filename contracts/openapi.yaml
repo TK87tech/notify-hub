@@ -1,0 +1,299 @@
+openapi: 3.0.3
+info:
+  title: NotifyHub API
+  version: 1.0.0
+  description: >
+    Notification queue system API contract. Frontend builds against this using
+    a mock server (Prism); backend implements it. Neither team waits for the other.
+    Change this file only through a pull request that both a backend and a
+    frontend owner approve.
+servers:
+  - url: http://localhost:4000/api/v1
+    description: Local development
+  - url: https://notify-hub-api.onrender.com/api/v1
+    description: Deployed (Render free tier)
+
+tags:
+  - name: Notifications
+  - name: Preferences
+  - name: Devices
+  - name: Internal
+
+paths:
+  /notifications:
+    get:
+      tags: [Notifications]
+      summary: List the signed-in user's notifications
+      parameters:
+        - name: cursor
+          in: query
+          schema: { type: string }
+          description: Pass the nextCursor from the previous page
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 50 }
+        - name: status
+          in: query
+          schema: { type: string, enum: [all, unread] , default: all }
+      responses:
+        '200':
+          description: A page of notifications
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, unreadCount]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Notification' }
+                  unreadCount: { type: integer, example: 3 }
+                  nextCursor:
+                    type: string
+                    nullable: true
+                    example: "2026-09-21T08:14:00.000Z_01J9Z"
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /notifications/unread-count:
+    get:
+      tags: [Notifications]
+      summary: Badge count only (cheap call for page load)
+      responses:
+        '200':
+          description: Unread count
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [unreadCount]
+                properties:
+                  unreadCount: { type: integer, example: 3 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /notifications/{id}/read:
+    patch:
+      tags: [Notifications]
+      summary: Mark one notification as read
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Updated notification
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [notification, unreadCount]
+                properties:
+                  notification: { $ref: '#/components/schemas/Notification' }
+                  unreadCount: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /notifications/read-all:
+    patch:
+      tags: [Notifications]
+      summary: Mark every notification as read
+      responses:
+        '200':
+          description: Result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [updated, unreadCount]
+                properties:
+                  updated: { type: integer, example: 3 }
+                  unreadCount: { type: integer, example: 0 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /preferences:
+    get:
+      tags: [Preferences]
+      summary: Get the signed-in user's channel preferences
+      responses:
+        '200':
+          description: Preferences
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Preferences' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    put:
+      tags: [Preferences]
+      summary: Replace the signed-in user's channel preferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Preferences' }
+      responses:
+        '200':
+          description: Saved preferences
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Preferences' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /devices:
+    post:
+      tags: [Devices]
+      summary: Register a device token for mobile or browser push
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, platform]
+              properties:
+                token: { type: string }
+                platform: { type: string, enum: [web, android, ios] }
+      responses:
+        '201':
+          description: Registered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /internal/notifications:
+    post:
+      tags: [Internal]
+      summary: Producer endpoint — enqueue a notification
+      description: >
+        Called by other parts of the system, never by the browser. Requires the
+        x-service-key header. Returns 202 as soon as the job is queued.
+        Send the same idempotencyKey twice and the second call is ignored.
+      security:
+        - serviceKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId, type, title]
+              properties:
+                userId: { type: string }
+                type: { $ref: '#/components/schemas/NotificationType' }
+                title: { type: string, example: "Ada assigned you a task" }
+                body: { type: string, example: "Design review" }
+                link: { type: string, example: "/tasks/91" }
+                priority: { type: string, enum: [urgent, normal, low], default: normal }
+                idempotencyKey: { type: string, example: "task-91-assigned-u42" }
+                data:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '202':
+          description: Accepted and queued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [jobId, status]
+                properties:
+                  jobId: { type: string }
+                  status: { type: string, enum: [queued, duplicate, suppressed] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    serviceKey:
+      type: apiKey
+      in: header
+      name: x-service-key
+
+  schemas:
+    NotificationType:
+      type: string
+      enum: [task_assigned, payment_received, deadline_warning, comment, system]
+
+    Notification:
+      type: object
+      required: [id, type, title, read, createdAt]
+      properties:
+        id: { type: string, example: "01J9ZQ8K3N" }
+        type: { $ref: '#/components/schemas/NotificationType' }
+        title: { type: string, example: "Ada assigned you a task" }
+        body: { type: string, example: "Design review" }
+        link: { type: string, nullable: true, example: "/tasks/91" }
+        priority: { type: string, enum: [urgent, normal, low] }
+        read: { type: boolean, example: false }
+        createdAt: { type: string, format: date-time }
+        data:
+          type: object
+          additionalProperties: true
+
+    ChannelSet:
+      type: object
+      required: [inApp, email, push]
+      properties:
+        inApp: { type: boolean }
+        email: { type: boolean }
+        push: { type: boolean }
+
+    Preferences:
+      type: object
+      required: [channels]
+      properties:
+        channels:
+          type: object
+          description: One ChannelSet per notification type
+          additionalProperties: { $ref: '#/components/schemas/ChannelSet' }
+          example:
+            task_assigned: { inApp: true, email: true, push: false }
+            payment_received: { inApp: true, email: true, push: true }
+            deadline_warning: { inApp: true, email: false, push: true }
+            comment: { inApp: true, email: false, push: false }
+            system: { inApp: true, email: true, push: false }
+        quietHours:
+          type: object
+          nullable: true
+          properties:
+            start: { type: string, example: "22:00" }
+            end: { type: string, example: "07:00" }
+            timezone: { type: string, example: "Asia/Bangkok" }
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, example: "not_found" }
+            message: { type: string, example: "Notification not found" }
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing or invalid credentials
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+security:
+  - bearerAuth: []

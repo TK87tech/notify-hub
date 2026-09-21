@@ -1,0 +1,308 @@
+[
+  {
+    "stage": 1,
+    "phase": "Plan",
+    "owner": "bell",
+    "area": "all",
+    "title": "[Stage 1] Agree notification types, channels and priorities",
+    "body": "Lock down what the system must deliver before anyone builds.\n\n**Done when**\n- [ ] The five notification types in `contracts/openapi.yaml` are confirmed or changed by the whole team\n- [ ] Each type has an agreed default for in-app, email and push\n- [ ] Priority levels (urgent, normal, low) and what each means are written down\n- [ ] Decision recorded in `docs/` and linked here\n\n**Notes**\nSMS is out of scope — there is no free provider. The adapter interface leaves room for it later.",
+    "branch": null
+  },
+  {
+    "stage": 2,
+    "phase": "Plan",
+    "owner": "prism",
+    "area": "frontend",
+    "title": "[Stage 2] Confirm the UI template and install it",
+    "body": "We have no designer, so the template is the design decision. Make it once, then never revisit it.\n\n**Done when**\n- [ ] Team confirms shadcn/ui (or picks an alternative from `docs/UI-TEMPLATE.md`) — decide in one meeting, not over a week\n- [ ] Vite + React + TypeScript + Tailwind scaffolded in `/frontend`\n- [ ] `npx shadcn@latest init` run and committed\n- [ ] Components added: button badge popover dropdown-menu scroll-area separator skeleton sonner switch label card select alert form table avatar\n- [ ] Dark mode working through the theme tokens\n- [ ] A screenshot of the running blank app posted in this issue\n\n**Blocks everyone else on the frontend. Do this first.**",
+    "branch": "feat/prism/ui-template"
+  },
+  {
+    "stage": 2,
+    "phase": "Plan",
+    "owner": "prism",
+    "area": "frontend",
+    "title": "[Stage 2] App shell, routing and layout from the template",
+    "body": "Strip TailAdmin's free React dashboard down to the shell we actually need.\n\n**Done when**\n- [ ] Top bar (where the bell will live) and sidebar\n- [ ] Routing set up with a page per route: inbox, preferences\n- [ ] Responsive down to 360px — sidebar collapses on mobile\n- [ ] TailAdmin's demo charts, tables and widget pages deleted, not left lying around\n- [ ] `src/features/notifications` and `src/features/preferences` folders created empty, so Pulse and Beacon can start",
+    "branch": "feat/prism/app-shell"
+  },
+  {
+    "stage": 2,
+    "phase": "Plan",
+    "owner": "prism",
+    "area": "frontend",
+    "title": "[Stage 2] Shared components and the screen conventions",
+    "body": "The rule that replaces having a designer: nobody hand-rolls what the template already has.\n\n**Done when**\n- [ ] `NotificationIcon` component mapping each of the five types to an icon and colour\n- [ ] `EmptyState`, `ErrorState` and `LoadingSkeleton` components everyone reuses\n- [ ] `RelativeTime` component (\"2 min ago\")\n- [ ] A short `frontend/README.md` section: use theme tokens, never raw hex; shared components go in `src/components` and Prism reviews them\n- [ ] Pulse and Beacon have both read it",
+    "branch": "feat/prism/shared-components"
+  },
+  {
+    "stage": 3,
+    "phase": "Plan",
+    "owner": "bell",
+    "area": "backend",
+    "title": "[Stage 3] Finalise the API contract",
+    "body": "`contracts/openapi.yaml` and `contracts/realtime-events.md` are the agreement that lets frontend and backend work in parallel. Review them together and sign off.\n\n**Done when**\n- [ ] Every endpoint reviewed by at least one frontend person\n- [ ] Socket.IO event payloads confirmed\n- [ ] The mock server runs: `npx @stoplight/prism-cli mock contracts/openapi.yaml --port 4010`\n- [ ] Merged to main — after this, changes need a PR with both a backend and a frontend approval",
+    "branch": "docs/bell/api-contract"
+  },
+  {
+    "stage": 3,
+    "phase": "Plan",
+    "owner": "relay",
+    "area": "backend",
+    "title": "[Stage 3] Architecture diagram and queue decision",
+    "body": "Write down how the pieces fit, so all seven hold the same picture.\n\n**Done when**\n- [ ] Diagram: producer API, queue, workers, channel adapters, database, Socket.IO gateway\n- [ ] BullMQ + Redis confirmed as the queue (see `docs/STACK.md`)\n- [ ] The job payload shape agreed between Bell, Relay and Ember — this is the contract the three of you meet at\n- [ ] Diagram committed to `docs/`",
+    "branch": "docs/relay/architecture"
+  },
+  {
+    "stage": 3,
+    "phase": "Plan",
+    "owner": "warden",
+    "area": "infra",
+    "title": "[Stage 3] Free-tier accounts and shared environment secrets",
+    "body": "Nobody should be blocked waiting for a database URL.\n\n**Done when**\n- [ ] Neon (Postgres) project created, connection string shared with the team privately\n- [ ] Upstash (Redis) database created\n- [ ] Brevo account created and the sender address verified\n- [ ] Firebase project created for Cloud Messaging\n- [ ] All keys added as GitHub repository secrets (Settings → Secrets → Actions)\n- [ ] `.env.example` updated if any variable name changed\n\n**Never commit a real key. `.env` is in `.gitignore` — keep it that way.**",
+    "branch": "chore/warden/accounts-and-secrets"
+  },
+  {
+    "stage": 3,
+    "phase": "Plan",
+    "owner": "warden",
+    "area": "infra",
+    "title": "[Stage 3] CI pipeline running on every pull request",
+    "body": "**Done when**\n- [ ] `.github/workflows/ci.yml` lints the OpenAPI contract\n- [ ] Backend and frontend jobs install, test and build\n- [ ] CI is a required status check on `main`\n- [ ] A deliberately broken PR is opened to prove CI catches it, then closed\n- [ ] CI finishes in under 5 minutes, so nobody is tempted to skip it",
+    "branch": "chore/warden/ci-pipeline"
+  },
+  {
+    "stage": 4,
+    "phase": "Build",
+    "owner": "bell",
+    "area": "backend",
+    "title": "[Stage 4] Database schema and Prisma migrations",
+    "body": "Tables: users, notifications, preferences, devices, delivery_attempts.\n\n**Done when**\n- [ ] `backend/prisma/schema.prisma` covers all five tables\n- [ ] Indexes on `(userId, createdAt)` and `(userId, read)` — the notification list depends on them\n- [ ] `delivery_attempts` records channel, status, error and attempt number\n- [ ] First migration runs cleanly against a fresh database\n- [ ] Seed script creates a test user with sample notifications\n\n**Blocks Relay and Ember. Do this first on the backend.**",
+    "branch": "feat/bell/db-schema"
+  },
+  {
+    "stage": 4,
+    "phase": "Build",
+    "owner": "bell",
+    "area": "backend",
+    "title": "[Stage 4] Express app skeleton and auth middleware",
+    "body": "The shell every other backend issue builds inside.\n\n**Done when**\n- [ ] Express app with error handling and request logging\n- [ ] JWT middleware for browser routes\n- [ ] `x-service-key` middleware for `/internal/*`\n- [ ] Errors come back in the `Error` shape from the contract\n- [ ] `GET /health` returns 200",
+    "branch": "feat/bell/app-skeleton"
+  },
+  {
+    "stage": 4,
+    "phase": "Build",
+    "owner": "bell",
+    "area": "backend",
+    "title": "[Stage 4] Producer endpoint: POST /internal/notifications",
+    "body": "Accept a notification request, check preferences, put a job on the queue.\n\n**Done when**\n- [ ] Validates the body against the contract\n- [ ] Looks up the user's preferences and drops channels they have switched off\n- [ ] Returns 202 with `{ jobId, status }` where status is queued, duplicate or suppressed\n- [ ] `idempotencyKey` seen before returns `duplicate` without queueing again\n- [ ] Returns in under 100ms — the actual sending is the worker's job",
+    "branch": "feat/bell/producer-api"
+  },
+  {
+    "stage": 4,
+    "phase": "Build",
+    "owner": "bell",
+    "area": "backend",
+    "title": "[Stage 4] Read endpoints: list, unread count, mark read, mark all read",
+    "body": "The four endpoints the notification panel calls.\n\n**Done when**\n- [ ] `GET /notifications` with cursor pagination and the `status=unread` filter\n- [ ] `GET /notifications/unread-count`\n- [ ] `PATCH /notifications/:id/read` returns the updated notification and fresh count\n- [ ] `PATCH /notifications/read-all`\n- [ ] Each marks-read call emits the matching Socket.IO event to that user's room\n- [ ] A user can never read another user's notifications — test this",
+    "branch": "feat/bell/read-endpoints"
+  },
+  {
+    "stage": 5,
+    "phase": "Build",
+    "owner": "relay",
+    "area": "backend",
+    "title": "[Stage 5] BullMQ queue and worker skeleton",
+    "body": "The heart of the system.\n\n**Done when**\n- [ ] Queue connects to Redis from `REDIS_URL`\n- [ ] Worker picks up jobs and logs them\n- [ ] Three priority levels map onto BullMQ priorities\n- [ ] Worker runs as its own process (`npm run worker`), not inside the API\n- [ ] Graceful shutdown: finish the current job, then exit",
+    "branch": "feat/relay/queue-worker"
+  },
+  {
+    "stage": 5,
+    "phase": "Build",
+    "owner": "relay",
+    "area": "backend",
+    "title": "[Stage 5] Retries, exponential backoff and the dead-letter queue",
+    "body": "What makes the system reliable rather than merely working.\n\n**Done when**\n- [ ] Failed jobs retry 5 times with exponential backoff starting at 2s\n- [ ] A job that exhausts its retries moves to a dead-letter queue instead of vanishing\n- [ ] Every attempt writes a `delivery_attempts` row with the error\n- [ ] A permanent failure (invalid email address) fails fast with no retries\n- [ ] Rate limiting so we stay inside Brevo's 300/day free tier\n- [ ] Idempotency: the same job running twice sends one notification, not two",
+    "branch": "feat/relay/retries-dlq"
+  },
+  {
+    "stage": 5,
+    "phase": "Build",
+    "owner": "relay",
+    "area": "backend",
+    "title": "[Stage 5] Socket.IO gateway for in-app delivery",
+    "body": "**Done when**\n- [ ] Socket.IO server with JWT verification in the handshake\n- [ ] Each connection joins the room `user:<userId>`\n- [ ] Worker emits `notification:new` to that room after saving to the database\n- [ ] An unauthorised handshake is rejected with `unauthorized`\n- [ ] Matches `contracts/realtime-events.md` exactly\n- [ ] Two browser tabs stay in agreement when one marks a notification read",
+    "branch": "feat/relay/socketio-gateway"
+  },
+  {
+    "stage": 5,
+    "phase": "Build",
+    "owner": "relay",
+    "area": "backend",
+    "title": "[Stage 5] Scheduled and delayed jobs",
+    "body": "Needed for quiet hours and for any reminder-style notification.\n\n**Done when**\n- [ ] A job can be queued with a delay\n- [ ] A job delayed past a quiet-hours window fires at the right local time\n- [ ] Delayed jobs survive a worker restart\n- [ ] Ember can call this from the channel layer without knowing how BullMQ works",
+    "branch": "feat/relay/delayed-jobs"
+  },
+  {
+    "stage": 6,
+    "phase": "Build",
+    "owner": "ember",
+    "area": "backend",
+    "title": "[Stage 6] The Channel interface and the in-app channel",
+    "body": "One interface that every channel implements, so adding SMS later is a new file, not a rewrite.\n\n**Done when**\n- [ ] `Channel` interface: `send(notification, user)` returning success or a typed failure\n- [ ] A failure is marked either retryable or permanent — the retry logic depends on this distinction\n- [ ] In-app channel writes to the database and hands off to Relay's gateway\n- [ ] A registry maps channel name to implementation, so the worker never uses a switch statement",
+    "branch": "feat/ember/channel-interface"
+  },
+  {
+    "stage": 6,
+    "phase": "Build",
+    "owner": "ember",
+    "area": "backend",
+    "title": "[Stage 6] Email channel with Brevo, plus templates",
+    "body": "**Done when**\n- [ ] Brevo adapter implementing the `Channel` interface\n- [ ] One HTML template per notification type, with a plain-text fallback\n- [ ] Unsubscribe link pointing at the preferences page\n- [ ] A send failure throws the right failure type so retries work\n- [ ] Test email actually arrives in a real inbox, and looks right on a phone",
+    "branch": "feat/ember/email-channel"
+  },
+  {
+    "stage": 6,
+    "phase": "Build",
+    "owner": "ember",
+    "area": "backend",
+    "title": "[Stage 6] Push channel with Firebase Cloud Messaging",
+    "body": "**Done when**\n- [ ] FCM adapter implementing the same `Channel` interface\n- [ ] Sends to every registered device token for the user\n- [ ] An invalid or expired token is deleted rather than retried forever\n- [ ] Browser push works end to end on one machine\n- [ ] Deep link opens the right page when the notification is tapped",
+    "branch": "feat/ember/push-channel"
+  },
+  {
+    "stage": 6,
+    "phase": "Build",
+    "owner": "ember",
+    "area": "backend",
+    "title": "[Stage 6] Preferences and device endpoints, with quiet hours",
+    "body": "**Done when**\n- [ ] `GET /preferences` returns sensible defaults for a user who has never saved any\n- [ ] `PUT /preferences` validates every type and channel key\n- [ ] Quiet hours stored with a timezone and applied when deciding to send\n- [ ] A low-priority notification inside quiet hours is delayed, not dropped; urgent goes through\n- [ ] `POST /devices` registers a push token, replacing a duplicate rather than adding a second row",
+    "branch": "feat/ember/preferences-api"
+  },
+  {
+    "stage": 7,
+    "phase": "Build",
+    "owner": "pulse",
+    "area": "frontend",
+    "title": "[Stage 7] Typed API client and data layer",
+    "body": "Both frontend feature folders depend on this, so it comes before the screens.\n\n**Done when**\n- [ ] Client generated from `contracts/openapi.yaml`, so types cannot drift from the contract\n- [ ] TanStack Query set up for caching and refetching\n- [ ] `VITE_API_URL` switches between the mock server (4010) and the real backend (4000)\n- [ ] Auth token attached to every request\n- [ ] Beacon confirmed it works for the preferences endpoints too",
+    "branch": "feat/pulse/api-client"
+  },
+  {
+    "stage": 7,
+    "phase": "Build",
+    "owner": "pulse",
+    "area": "frontend",
+    "title": "[Stage 7] Notification bell and panel",
+    "body": "Build against the mock server — do not wait for the backend. Use the template's `popover`, `scroll-area` and `badge`; do not hand-roll them.\n\n**Done when**\n- [ ] Bell with unread badge, hidden at zero\n- [ ] Dropdown panel listing notifications, newest first\n- [ ] Unread items visually distinct; type icons from Prism's `NotificationIcon`\n- [ ] Clicking an item marks it read and follows its link\n- [ ] 'Mark all as read' works\n- [ ] Empty, loading and error states use Prism's shared components\n- [ ] Infinite scroll or a 'load more' button using the cursor",
+    "branch": "feat/pulse/notification-bell"
+  },
+  {
+    "stage": 7,
+    "phase": "Build",
+    "owner": "pulse",
+    "area": "frontend",
+    "title": "[Stage 7] Socket.IO client and live toasts",
+    "body": "Toasts come from Sonner, which ships with the template. Stacking and auto-dismiss are already handled — do not rebuild them.\n\n**Done when**\n- [ ] Socket connects with the JWT and reconnects on its own\n- [ ] `notification:new` prepends to the list, raises the badge and fires a Sonner toast\n- [ ] Urgent toasts stay until dismissed; others fade after 5 seconds\n- [ ] After a reconnect, the client calls `GET /notifications` once to catch up\n- [ ] `notification:read` from another tab updates this one",
+    "branch": "feat/pulse/realtime-toasts"
+  },
+  {
+    "stage": 7,
+    "phase": "Build",
+    "owner": "beacon",
+    "area": "frontend",
+    "title": "[Stage 7] Preferences page",
+    "body": "Use the template's `switch`, `table`, `card` and `form` components.\n\n**Done when**\n- [ ] Grid of notification types by channel, using `switch`\n- [ ] Quiet hours picker with a timezone\n- [ ] Saves through `PUT /preferences` with a clear success state\n- [ ] Unsaved changes warn before navigating away\n- [ ] Works on a phone-width screen",
+    "branch": "feat/beacon/preferences-page"
+  },
+  {
+    "stage": 7,
+    "phase": "Build",
+    "owner": "beacon",
+    "area": "frontend",
+    "title": "[Stage 7] Full notifications page and browser push opt-in",
+    "body": "The panel shows the recent few. This is the 'view all' page, plus the permission flow.\n\n**Done when**\n- [ ] Full-page list with filters by type and by unread\n- [ ] Pagination or infinite scroll\n- [ ] Browser push permission prompt, asked at a sensible moment rather than on first load\n- [ ] Granted permission registers the device via `POST /devices`\n- [ ] A clear explanation shown if the user has blocked notifications in their browser",
+    "branch": "feat/beacon/notifications-page"
+  },
+  {
+    "stage": 7,
+    "phase": "Build",
+    "owner": "beacon",
+    "area": "frontend",
+    "title": "[Stage 7] Sign-in screen and auth flow",
+    "body": "Everything else assumes a signed-in user with a JWT, so somebody has to build that.\n\n**Done when**\n- [ ] Sign-in form using the template's `form`, `input` and `card`\n- [ ] Token stored and attached by Pulse's API client\n- [ ] Protected routes redirect to sign-in when there is no valid token\n- [ ] Sign-out clears the token and disconnects the socket\n- [ ] An expired token is handled without the app crashing\n\nKeep it simple — this is not the point of the project, it just has to work.",
+    "branch": "feat/beacon/auth-flow"
+  },
+  {
+    "stage": 8,
+    "phase": "Launch",
+    "owner": "bell",
+    "area": "all",
+    "title": "[Stage 8] Integration: swap mocks for the real API",
+    "body": "Expect mismatches here. That is what this stage is for.\n\n**Done when**\n- [ ] Frontend points at the real backend\n- [ ] Full flow works: event → producer API → queue → worker → channel → panel\n- [ ] Live toast arrives without a page refresh\n- [ ] Every mismatch between the contract and the implementation is fixed in one or the other\n- [ ] A demo script exists so anyone on the team can reproduce the flow",
+    "branch": "feat/bell/integration"
+  },
+  {
+    "stage": 9,
+    "phase": "Launch",
+    "owner": "warden",
+    "area": "infra",
+    "title": "[Stage 9] Load test and failure simulation",
+    "body": "**Done when**\n- [ ] 1,000 jobs queued at once; the queue drains cleanly and nothing is lost\n- [ ] Email provider outage simulated: jobs retry, then land in the dead-letter queue\n- [ ] Redis restart simulated mid-run: no jobs lost\n- [ ] Worker killed mid-job: the job is retried, not silently dropped\n- [ ] Results written up in this issue with the numbers",
+    "branch": "test/warden/load-and-failure"
+  },
+  {
+    "stage": 9,
+    "phase": "Launch",
+    "owner": "ember",
+    "area": "backend",
+    "title": "[Stage 9] Backend unit and integration tests",
+    "body": "**Done when**\n- [ ] Tests for the producer, preference filtering, quiet hours and idempotency\n- [ ] Each channel adapter tested against a fake provider\n- [ ] Users cannot read each other's notifications — test proves it\n- [ ] Tests run in CI in under two minutes",
+    "branch": "test/ember/backend-tests"
+  },
+  {
+    "stage": 9,
+    "phase": "Launch",
+    "owner": "pulse",
+    "area": "frontend",
+    "title": "[Stage 9] Frontend tests and cross-device checks",
+    "body": "**Done when**\n- [ ] Component tests for the bell, panel and toasts\n- [ ] Dropped WebSocket reconnects and catches up — tested\n- [ ] Chrome, Firefox and Safari checked\n- [ ] Works on a real phone, not just a resized window\n- [ ] Keyboard navigation and screen-reader labels on the bell and panel",
+    "branch": "test/pulse/frontend-tests"
+  },
+  {
+    "stage": 9,
+    "phase": "Launch",
+    "owner": "prism",
+    "area": "frontend",
+    "title": "[Stage 9] Consistency and accessibility pass",
+    "body": "The job that used to belong to a designer. One person walks every screen.\n\n**Done when**\n- [ ] Every screen uses theme tokens — no raw hex anywhere, checked with a grep\n- [ ] Dark mode correct on every screen\n- [ ] Spacing and type sizes consistent between the three feature folders\n- [ ] Colour contrast meets WCAG AA\n- [ ] Any component duplicated across features is moved into `src/components`\n- [ ] Five people outside the team try the flow; confusion noted and turned into issues",
+    "branch": "fix/prism/consistency-pass"
+  },
+  {
+    "stage": 10,
+    "phase": "Launch",
+    "owner": "warden",
+    "area": "infra",
+    "title": "[Stage 10] Deploy backend, worker and frontend",
+    "body": "**Done when**\n- [ ] API deployed to Render's free tier\n- [ ] Worker running as its own service, not inside the API\n- [ ] Frontend on Vercel or Netlify, deploying from `main`\n- [ ] Neon, Upstash, Brevo and FCM connected through environment variables\n- [ ] Migrations run automatically on deploy\n- [ ] CORS and the Socket.IO origin allow the production domain\n- [ ] Render's free-tier sleep behaviour documented in the README so nobody is caught out at the demo",
+    "branch": "chore/warden/deploy"
+  },
+  {
+    "stage": 10,
+    "phase": "Launch",
+    "owner": "warden",
+    "area": "infra",
+    "title": "[Stage 10] Monitoring and a queue health view",
+    "body": "**Done when**\n- [ ] Sentry free tier catching errors on backend and frontend\n- [ ] Queue depth, processing time, failure rate and dead-letter size visible somewhere\n- [ ] An alert when the dead-letter queue grows past a threshold\n- [ ] A short runbook in `docs/`: what to check first when notifications stop arriving",
+    "branch": "chore/warden/monitoring"
+  },
+  {
+    "stage": 11,
+    "phase": "Launch",
+    "owner": "bell",
+    "area": "all",
+    "title": "[Stage 11] Retrospective and next-version backlog",
+    "body": "**Done when**\n- [ ] Team retro: what worked, what did not, what to change\n- [ ] Findings from Stage 9 turned into issues\n- [ ] Candidates considered: notification grouping, daily digests, SMS, a mobile app\n- [ ] README updated with the current state and how to run everything",
+    "branch": null
+  }
+]

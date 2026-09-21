@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  contract:
+    name: API contract is valid
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Lint the OpenAPI contract
+        run: npx --yes @redocly/cli lint contracts/openapi.yaml --skip-rule no-empty-servers
+
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Skip if backend is not set up yet
+        id: check
+        run: test -f backend/package.json && echo "ready=true" >> $GITHUB_OUTPUT || echo "ready=false" >> $GITHUB_OUTPUT
+      - if: steps.check.outputs.ready == 'true'
+        working-directory: backend
+        run: npm ci
+      - if: steps.check.outputs.ready == 'true'
+        working-directory: backend
+        run: npm test --if-present
+
+  frontend:
+    name: Frontend build and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Skip if frontend is not set up yet
+        id: check
+        run: test -f frontend/package.json && echo "ready=true" >> $GITHUB_OUTPUT || echo "ready=false" >> $GITHUB_OUTPUT
+      - if: steps.check.outputs.ready == 'true'
+        working-directory: frontend
+        run: npm ci
+      - if: steps.check.outputs.ready == 'true'
+        working-directory: frontend
+        run: npm test --if-present
+      - if: steps.check.outputs.ready == 'true'
+        working-directory: frontend
+        run: npm run build --if-present
