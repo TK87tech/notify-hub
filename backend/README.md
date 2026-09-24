@@ -7,14 +7,21 @@ Express API, BullMQ workers and the Prisma schema.
 ```bash
 cd backend
 npm install
+cp .env.example .env        # PowerShell: Copy-Item .env.example .env
 ```
 
-Make sure `DATABASE_URL` in your `.env` points at a Postgres you can reach —
-the local Docker one from `docker-compose.yml`, or your Neon connection string:
+**The `.env` must be in `backend/`, not the project root.** Prisma reads it
+from the folder you run the command in, so a root-level `.env` is not found
+and you get `Environment variable not found: DATABASE_URL`.
 
+Start Postgres before migrating — from the **project root**:
+
+```bash
+docker compose up -d
 ```
-DATABASE_URL=postgresql://notifyhub:notifyhub@localhost:5432/notifyhub
-```
+
+No Docker? Create a free database at neon.tech and paste its connection string
+into `backend/.env` instead, keeping `?sslmode=require` on the end.
 
 Then create the tables and fill them with test data:
 
@@ -37,6 +44,61 @@ to check a change did what you expected.
 | `npm run db:seed` | Reset seed data |
 | `npm run db:reset` | Drop everything, re-migrate, re-seed |
 | `npm run db:studio` | Browse the data |
+
+## Running the API
+
+The API reads `backend/.env` through `dotenv`, loaded at the top of
+`src/config/env.ts`. Every variable is validated on boot, so a missing
+`JWT_SECRET` stops the server with a clear message instead of failing on the
+first request. If you see "Invalid environment configuration", your `.env` is
+missing one of the values in `.env.example`.
+
+```bash
+npm run dev            # http://localhost:4000, reloads on save
+npm test               # 13 tests, no database needed
+npm run typecheck      # tsc --noEmit
+```
+
+### The two front doors
+
+| Route prefix | Guard | Who calls it |
+|---|---|---|
+| `/health`, `/health/ready` | none | Render, monitoring, you |
+| `/api/v1/*` | `requireUser` - JWT in `Authorization: Bearer <token>` | the browser |
+| `/internal/*` | `requireService` - shared secret in `x-service-key` | our own services |
+
+The producer endpoint lives under `/internal` on purpose. If a browser could
+reach it, any user could send notifications to anyone.
+
+### Getting a token before sign-in exists
+
+```bash
+npm run token                          # first seeded user
+npm run token -- ada@notifyhub.test    # a specific one
+```
+
+It prints a ready-made curl command. Try it:
+
+```bash
+curl http://localhost:4000/health
+curl -H "Authorization: Bearer <token>" http://localhost:4000/api/v1/me
+curl -H "x-service-key: <SERVICE_KEY from .env>" http://localhost:4000/internal/ping
+```
+
+### Errors
+
+Never write an error response by hand. Throw one of the helpers from
+`src/lib/errors.ts` and the error handler turns it into the contract's shape:
+
+```ts
+import { notFound, badRequest } from "../lib/errors.js";
+
+const n = await prisma.notification.findUnique({ where: { id } });
+if (!n) throw notFound("Notification not found");
+```
+
+Express 5 forwards rejected promises on its own, so an async handler needs no
+try/catch for this to work.
 
 ## The schema
 
