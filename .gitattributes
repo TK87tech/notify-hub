@@ -1,0 +1,33 @@
+# Line endings.
+#
+# Seven people on Windows, Mac and Linux will otherwise produce diffs where a
+# whole file looks rewritten because one editor saved CRLF instead of LF.
+# This pins it: LF in the repository, LF in everyone's working copy.
+
+* text=auto eol=lf
+
+# Windows scripts keep CRLF - some Windows tooling still expects it.
+*.ps1  text eol=crlf
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# Shell scripts must stay LF or they will not run.
+*.sh   text eol=lf
+
+# Binary files: never convert anything inside these.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.webp binary
+*.pdf  binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+*.zip  binary
+
+# Generated files. GitHub collapses these in the pull request view, so a
+# lockfile change does not bury the twenty lines that actually matter.
+package-lock.json  linguist-generated=true
+*/package-lock.json linguist-generated=true
