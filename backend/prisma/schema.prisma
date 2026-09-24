@@ -1,0 +1,175 @@
+// NotifyHub database schema
+//
+// Every enum and field here mirrors contracts/openapi.yaml. If one changes,
+// the other changes in the same pull request.
+//
+// Owner: Bell (@TK87tech). Nobody else runs migrations.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------- enums ----
+
+/// Matches NotificationType in the API contract.
+enum NotificationType {
+  task_assigned
+  payment_received
+  deadline_warning
+  comment
+  system
+}
+
+/// Urgent skips ahead in the queue and its toast does not auto-dismiss.
+/// Low is the only level quiet hours may delay.
+enum Priority {
+  urgent
+  normal
+  low
+}
+
+enum Channel {
+  in_app
+  email
+  push
+}
+
+enum DevicePlatform {
+  web
+  android
+  ios
+}
+
+/// queued  - accepted, waiting for a worker
+/// sent    - handed to the provider successfully
+/// failed  - provider rejected it; retryable failures are tried again
+/// dead    - gave up after the last retry; sits in the dead-letter queue
+enum DeliveryStatus {
+  queued
+  sent
+  failed
+  dead
+}
+
+// --------------------------------------------------------------- models ----
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  notifications Notification[]
+  preference    Preference?
+  devices       Device[]
+
+  @@map("users")
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String?
+  link      String?
+  priority  Priority         @default(normal)
+  read      Boolean          @default(false)
+  readAt    DateTime?
+  /// Free-form payload the frontend may use for deep links or counts.
+  data      Json             @default("{}")
+  createdAt DateTime         @default(now())
+
+  user     User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attempts DeliveryAttempt[]
+
+  /// Drives the notification list: newest first, per user.
+  @@index([userId, createdAt(sort: Desc)])
+  /// Drives the unread badge count.
+  @@index([userId, read])
+
+  @@map("notifications")
+}
+
+model Preference {
+  id     String @id @default(cuid())
+  userId String @unique
+
+  /// One ChannelSet per notification type, exactly as the contract's
+  /// Preferences.channels object. Stored as JSON so adding a notification
+  /// type later needs no migration.
+  ///
+  /// { "task_assigned": { "inApp": true, "email": true, "push": false }, ... }
+  channels Json @default("{}")
+
+  /// Quiet hours are optional. All three fields are set together or not at all.
+  quietStart    String? // "22:00"
+  quietEnd      String? // "07:00"
+  quietTimezone String? // "Asia/Bangkok"
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("preferences")
+}
+
+model Device {
+  id        String         @id @default(cuid())
+  userId    String
+  /// FCM registration token.
+  token     String         @unique
+  platform  DevicePlatform
+  lastSeen  DateTime       @default(now())
+  createdAt DateTime       @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("devices")
+}
+
+/// One row per attempt to deliver one notification on one channel.
+/// Relay writes these from the worker; they are what makes a failure
+/// explainable three days later.
+model DeliveryAttempt {
+  id             String         @id @default(cuid())
+  notificationId String
+  channel        Channel
+  status         DeliveryStatus
+  /// 1 for the first try, 2 for the first retry, and so on.
+  attempt        Int            @default(1)
+  /// Provider error message, kept short. Null on success.
+  error          String?
+  /// Provider's own id for the message, when it gives one.
+  providerRef    String?
+  createdAt      DateTime       @default(now())
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@index([notificationId])
+  /// Lets Warden chart failure rate and dead-letter size per channel.
+  @@index([status, createdAt])
+
+  @@map("delivery_attempts")
+}
+
+/// Guards against sending the same notification twice when a job is retried
+/// or a producer call is repeated. The producer checks this table before
+/// queueing and returns status "duplicate" on a hit.
+model IdempotencyKey {
+  key            String   @id
+  notificationId String?
+  createdAt      DateTime @default(now())
+
+  /// Lets a cleanup job drop keys older than 30 days.
+  @@index([createdAt])
+  @@map("idempotency_keys")
+}
