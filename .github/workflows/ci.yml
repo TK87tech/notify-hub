@@ -6,6 +6,12 @@ on:
   push:
     branches: [main]
 
+# A new push to the same branch cancels the previous run, so a busy afternoon
+# does not queue up five stale runs.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   contract:
     name: API contract is valid
@@ -23,40 +29,88 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+
+      # This check must come BEFORE setup-node. setup-node's `cache` option
+      # fails the whole job when the lockfile it keys on does not exist, and
+      # it runs before any later step could skip it.
+      - name: Is the backend set up yet?
+        id: check
+        run: |
+          if [ -f backend/package-lock.json ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "No backend/package-lock.json yet - skipping." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - if: steps.check.outputs.ready == 'true'
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: npm
           cache-dependency-path: backend/package-lock.json
-      - name: Skip if backend is not set up yet
-        id: check
-        run: test -f backend/package.json && echo "ready=true" >> $GITHUB_OUTPUT || echo "ready=false" >> $GITHUB_OUTPUT
-      - if: steps.check.outputs.ready == 'true'
+
+      - name: Install
+        if: steps.check.outputs.ready == 'true'
         working-directory: backend
         run: npm ci
-      - if: steps.check.outputs.ready == 'true'
+
+      # Prisma's client must be generated before anything imports it, or every
+      # test fails on "did not initialize yet".
+      - name: Generate Prisma client
+        if: steps.check.outputs.ready == 'true'
+        working-directory: backend
+        run: npx prisma generate
+
+      - name: Typecheck
+        if: steps.check.outputs.ready == 'true'
+        working-directory: backend
+        run: npm run typecheck --if-present
+
+      - name: Test
+        if: steps.check.outputs.ready == 'true'
         working-directory: backend
         run: npm test --if-present
+        env:
+          NODE_ENV: test
+          JWT_SECRET: ci-secret-at-least-16-characters
+          SERVICE_KEY: ci-service-key
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
 
   frontend:
     name: Frontend build and tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+
+      - name: Is the frontend set up yet?
+        id: check
+        run: |
+          if [ -f frontend/package-lock.json ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "No frontend/package-lock.json yet - skipping until Prism scaffolds it." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - if: steps.check.outputs.ready == 'true'
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Skip if frontend is not set up yet
-        id: check
-        run: test -f frontend/package.json && echo "ready=true" >> $GITHUB_OUTPUT || echo "ready=false" >> $GITHUB_OUTPUT
-      - if: steps.check.outputs.ready == 'true'
+
+      - name: Install
+        if: steps.check.outputs.ready == 'true'
         working-directory: frontend
         run: npm ci
-      - if: steps.check.outputs.ready == 'true'
+
+      - name: Test
+        if: steps.check.outputs.ready == 'true'
         working-directory: frontend
         run: npm test --if-present
-      - if: steps.check.outputs.ready == 'true'
+
+      - name: Build
+        if: steps.check.outputs.ready == 'true'
         working-directory: frontend
         run: npm run build --if-present
