@@ -20,6 +20,7 @@ import { pinoHttp, type Options as PinoHttpOptions } from "pino-http";
 import { env } from "./config/env.js";
 import { logger } from "./lib/logger.js";
 import { healthRouter } from "./api/health.js";
+import { notificationApiRouter, internalNotificationRouter } from "./api/notifications.js";
 import { requireUser, requireService } from "./middleware/auth.js";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
 
@@ -75,6 +76,7 @@ export function createApp(): Express {
     res.json({ id: req.user!.sub, email: req.user!.email });
   });
 
+  api.use(notificationApiRouter);
   app.use("/api/v1", api);
 
   // --- Service routes: shared key required --------------------------------
@@ -86,6 +88,7 @@ export function createApp(): Express {
     res.json({ status: "ok", scope: "service" });
   });
 
+  internal.use(internalNotificationRouter);
   app.use("/internal", internal);
 
   // --- Tail ----------------------------------------------------------------
