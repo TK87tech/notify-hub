@@ -52,6 +52,7 @@ npx @stoplight/prism-cli mock contracts/openapi.yaml --port 4010
 - [`docs/BRANCHING.md`](docs/BRANCHING.md) — branches, commits, pull requests
 - [`docs/UI-TEMPLATE.md`](docs/UI-TEMPLATE.md) — the free UI template and how to install it
 - [`docs/STACK.md`](docs/STACK.md) — every tool chosen and why it is free
+- [`docs/BELL-DECISIONS.md`](docs/BELL-DECISIONS.md) — Bell-approved notification decisions, defaults and contract baseline
 - [`contracts/openapi.yaml`](contracts/openapi.yaml) — REST API contract
 - [`contracts/realtime-events.md`](contracts/realtime-events.md) — Socket.IO events
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to contribute
