@@ -18,6 +18,10 @@ export type SendEmailResult = {
 export async function sendEmail(
   input: SendEmailInput,
 ): Promise<SendEmailResult> {
+  if (!env.BREVO_API_KEY) {
+    throw new Error("BREVO_API_KEY is not set - email cannot be sent");
+  }
+
   const rendered = renderNotificationEmail(input);
 
   const response = await axios.post(
@@ -43,6 +47,7 @@ export async function sendEmail(
         "api-key": env.BREVO_API_KEY,
         "content-type": "application/json",
       },
+      timeout: 10_000,
     },
   );
 

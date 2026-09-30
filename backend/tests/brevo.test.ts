@@ -58,11 +58,25 @@ describe("sendEmail", () => {
           "api-key": "test-brevo-api-key",
           "content-type": "application/json",
         },
+        timeout: 10_000,
       },
     );
 
     expect(result).toEqual({
       providerRef: "<brevo-message-123>",
     });
+  });
+
+  it("throws a clear error when BREVO_API_KEY is missing", async () => {
+    vi.resetModules();
+    postMock.mockClear();
+    process.env.BREVO_API_KEY = "";
+
+    const { sendEmail } = await import("../src/channels/email/brevo.js");
+
+    await expect(
+      sendEmail({ to: "user@example.com", title: "Hi" }),
+    ).rejects.toThrow("BREVO_API_KEY is not set");
+    expect(postMock).not.toHaveBeenCalled();
   });
 });
