@@ -14,6 +14,8 @@ import { NotificationType, Priority } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { badRequest, notFound } from "../lib/errors.js";
 import { currentUserId } from "../middleware/auth.js";
+import { enqueueNotification } from "../lib/queue.js";
+import { quietHoursDelayMs } from "../lib/quiet-hours.js";
 
 const notificationTypeSchema = z.enum([
   "task_assigned",
@@ -31,7 +33,10 @@ const DEFAULT_CHANNEL_SET = {
   push: false,
 } as const;
 
-const DEFAULT_CHANNELS: Record<string, { inApp: boolean; email: boolean; push: boolean }> = {
+const DEFAULT_CHANNELS: Record<
+  string,
+  { inApp: boolean; email: boolean; push: boolean }
+> = {
   task_assigned: { ...DEFAULT_CHANNEL_SET },
   payment_received: { inApp: true, email: true, push: true },
   deadline_warning: { inApp: true, email: false, push: true },
@@ -39,8 +44,14 @@ const DEFAULT_CHANNELS: Record<string, { inApp: boolean; email: boolean; push: b
   system: { inApp: true, email: true, push: false },
 };
 
-function normalizeChannelSet(raw: unknown, type: string): { inApp: boolean; email: boolean; push: boolean } {
-  const pref = (raw as Record<string, unknown> | undefined)?.[type] as Record<string, unknown> | undefined;
+function normalizeChannelSet(
+  raw: unknown,
+  type: string,
+): { inApp: boolean; email: boolean; push: boolean } {
+  const pref = (raw as Record<string, unknown> | undefined)?.[type] as
+    | Record<string, unknown>
+    | undefined;
+
   const base = DEFAULT_CHANNELS[type] ?? DEFAULT_CHANNEL_SET;
 
   return {
@@ -50,20 +61,29 @@ function normalizeChannelSet(raw: unknown, type: string): { inApp: boolean; emai
   };
 }
 
-function decodeCursor(raw?: string): { createdAt: Date; id: string } | undefined {
+function decodeCursor(
+  raw?: string,
+): { createdAt: Date; id: string } | undefined {
   if (!raw) return undefined;
+
   const [createdAtRaw, id] = raw.split("_");
+
   if (!createdAtRaw || !id) return undefined;
 
   const createdAt = new Date(createdAtRaw);
+
   if (Number.isNaN(createdAt.getTime())) return undefined;
 
   return { createdAt, id };
 }
 
-function buildNextCursor(items: Array<{ id: string; createdAt: Date }>): string | null {
+function buildNextCursor(
+  items: Array<{ id: string; createdAt: Date }>,
+): string | null {
   if (items.length === 0) return null;
+
   const last = items[items.length - 1];
+
   return `${last.createdAt.toISOString()}_${last.id}`;
 }
 
@@ -95,9 +115,24 @@ export const notificationApiRouter = Router();
 
 notificationApiRouter.get("/notifications", async (req, res) => {
   const userId = currentUserId(req);
-  const limit = z.coerce.number().int().min(1).max(50).default(20).parse(req.query.limit ?? 20);
-  const status = z.enum(["all", "unread"]).default("all").parse(req.query.status ?? "all");
-  const cursor = decodeCursor(typeof req.query.cursor === "string" ? req.query.cursor : undefined);
+
+  const limit = z
+    .coerce
+    .number()
+    .int()
+    .min(1)
+    .max(50)
+    .default(20)
+    .parse(req.query.limit ?? 20);
+
+  const status = z
+    .enum(["all", "unread"])
+    .default("all")
+    .parse(req.query.status ?? "all");
+
+  const cursor = decodeCursor(
+    typeof req.query.cursor === "string" ? req.query.cursor : undefined,
+  );
 
   const where: Prisma.NotificationWhereInput = {
     userId,
@@ -106,7 +141,12 @@ notificationApiRouter.get("/notifications", async (req, res) => {
       ? {
           OR: [
             { createdAt: { lt: cursor.createdAt } },
-            { AND: [{ createdAt: { equals: cursor.createdAt } }, { id: { lt: cursor.id } }] },
+            {
+              AND: [
+                { createdAt: { equals: cursor.createdAt } },
+                { id: { lt: cursor.id } },
+              ],
+            },
           ],
         }
       : {}),
@@ -118,7 +158,9 @@ notificationApiRouter.get("/notifications", async (req, res) => {
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: limit + 1,
     }),
-    prisma.notification.count({ where: { userId, read: false } }),
+    prisma.notification.count({
+      where: { userId, read: false },
+    }),
   ]);
 
   const hasMore = items.length > limit;
@@ -144,7 +186,10 @@ notificationApiRouter.get("/notifications/unread-count", async (req, res) => {
 
 notificationApiRouter.patch("/notifications/:id/read", async (req, res) => {
   const userId = currentUserId(req);
-  const notification = await prisma.notification.findUnique({ where: { id: req.params.id } });
+
+  const notification = await prisma.notification.findUnique({
+    where: { id: req.params.id },
+  });
 
   if (!notification || notification.userId !== userId) {
     throw notFound("Notification not found");
@@ -187,7 +232,10 @@ notificationApiRouter.patch("/notifications/read-all", async (req, res) => {
     where: { userId, read: false },
   });
 
-  res.json({ updated: updated.count, unreadCount });
+  res.json({
+    updated: updated.count,
+    unreadCount,
+  });
 });
 
 const internalNotificationBodySchema = z.object({
@@ -215,11 +263,20 @@ internalNotificationRouter.post("/notifications", async (req, res) => {
     throw notFound("User not found");
   }
 
-  const channelSet = normalizeChannelSet(user.preference?.channels ?? {}, payload.type);
-  const enabledChannels = Object.entries(channelSet).filter(([, enabled]) => enabled).map(([name]) => name);
+  const channelSet = normalizeChannelSet(
+    user.preference?.channels ?? {},
+    payload.type,
+  );
+
+  const enabledChannels = Object.entries(channelSet)
+    .filter(([, enabled]) => enabled)
+    .map(([name]) => name);
 
   if (enabledChannels.length === 0) {
-    res.status(202).json({ jobId: null, status: "suppressed" });
+    res.status(202).json({
+      jobId: null,
+      status: "suppressed",
+    });
     return;
   }
 
@@ -258,17 +315,48 @@ internalNotificationRouter.post("/notifications", async (req, res) => {
     });
   }
 
+  const quietHours =
+    user.preference?.quietStart &&
+    user.preference?.quietEnd &&
+    user.preference?.quietTimezone
+      ? {
+          start: user.preference.quietStart,
+          end: user.preference.quietEnd,
+          timezone: user.preference.quietTimezone,
+        }
+      : null;
+
+  const delay =
+    payload.priority === "urgent"
+      ? 0
+      : quietHoursDelayMs(quietHours);
+
+  await enqueueNotification(
+    {
+      notificationId: notification.id,
+      userId: user.id,
+      priority: payload.priority,
+    },
+    delay,
+  );
+
   res.status(202).json({
     jobId: notification.id,
-    status: "queued",
+    status: delay > 0 ? "delayed" : "queued",
   });
 });
 
-const internalNotificationErrorHandler: ErrorRequestHandler = (err, _req, _res, next) => {
+const internalNotificationErrorHandler: ErrorRequestHandler = (
+  err,
+  _req,
+  _res,
+  next,
+) => {
   if (err instanceof z.ZodError) {
     next(badRequest("Invalid notification payload", err.issues));
     return;
   }
+
   next(err);
 };
 
