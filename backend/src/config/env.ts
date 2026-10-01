@@ -26,6 +26,9 @@ const schema = z.object({
   JWT_SECRET: z.string().min(16, "JWT_SECRET must be at least 16 characters"),
   SERVICE_KEY: z.string().min(8, "SERVICE_KEY must be at least 8 characters"),
 
+  BREVO_API_KEY: z.string().default(""),
+  EMAIL_FROM: z.string().default("no-reply@example.com"),
+
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
 });
 
