@@ -326,10 +326,12 @@ internalNotificationRouter.post("/notifications", async (req, res) => {
         }
       : null;
 
+  // Only low priority waits out quiet hours (docs/BELL-DECISIONS.md);
+  // urgent and normal go straight to the queue.
   const delay =
-    payload.priority === "urgent"
-      ? 0
-      : quietHoursDelayMs(quietHours);
+    payload.priority === "low"
+      ? quietHoursDelayMs(quietHours)
+      : 0;
 
   await enqueueNotification(
     {

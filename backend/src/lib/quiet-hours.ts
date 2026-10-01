@@ -58,24 +58,6 @@ export function quietHoursDelayMs(
   }
 
   const end = minutesFromTime(quietHours.end);
-
-  const currentParts = new Intl.DateTimeFormat("en-US", {
-    timeZone: quietHours.timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(now);
-
-  const year = Number(
-    currentParts.find((part) => part.type === "year")?.value,
-  );
-  const month = Number(
-    currentParts.find((part) => part.type === "month")?.value,
-  );
-  const day = Number(
-    currentParts.find((part) => part.type === "day")?.value,
-  );
-
   const currentMinutes = getLocalMinutes(now, quietHours.timezone);
 
   let minutesUntilEnd = end - currentMinutes;

@@ -115,6 +115,48 @@ describe("quiet hours notification delivery", () => {
     );
   });
 
+  it("sends a normal-priority notification immediately during quiet hours", async () => {
+    mocks.userFindUnique.mockResolvedValue({
+      id: "user-1",
+      preference: {
+        channels: {
+          task_assigned: {
+            inApp: true,
+            email: true,
+            push: true,
+          },
+        },
+        quietStart: "22:00",
+        quietEnd: "07:00",
+        quietTimezone: "Africa/Lagos",
+      },
+    });
+
+    const response = await request(app)
+      .post("/internal/notifications")
+      .set("x-service-key", "test-service-key")
+      .send({
+        userId: "user-1",
+        type: "task_assigned",
+        title: "Task assigned",
+        body: "You have a new task",
+        priority: "normal",
+        idempotencyKey: "quiet-normal-1",
+      });
+
+    expect(response.status).toBe(202);
+    expect(response.body.status).toBe("queued");
+
+    expect(mocks.enqueueNotification).toHaveBeenCalledWith(
+      {
+        notificationId: "notification-1",
+        userId: "user-1",
+        priority: "normal",
+      },
+      0,
+    );
+  });
+
   it("sends an urgent notification immediately during quiet hours", async () => {
     mocks.userFindUnique.mockResolvedValue({
       id: "user-1",
