@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { NotificationBell } from "@/features/notifications/NotificationBell";
+import { ThemeToggle } from "@/components/shared/ThemeToggle";
 import {
   SidebarProvider,
   Sidebar,
@@ -106,6 +107,8 @@ export function AppShell({ children }: AppShellProps) {
 
           <div className="flex items-center gap-2">
             <NotificationBell />
+
+            <ThemeToggle />
 
             <DropdownMenu>
               <DropdownMenuTrigger

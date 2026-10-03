@@ -67,7 +67,16 @@
 
   --input: oklch(0.922 0 0);
 
-  --ring: oklch(0.708 0 0);
+  --ring: oklch(0.556 0 0);
+
+  /* Status hues for the notification type icons. Checked against --background by
+     src/theme/theme-contrast.test.ts, so darkening one of these until the icon
+     reads as a different colour also breaks that test. */
+  --status-info: oklch(0.52 0.16 255);
+
+  --status-success: oklch(0.52 0.13 150);
+
+  --status-warning: oklch(0.55 0.14 70);
 
   --chart-1: oklch(0.87 0 0);
 
@@ -95,7 +104,7 @@
 
   --sidebar-border: oklch(0.922 0 0);
 
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar-ring: oklch(0.556 0 0);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -187,6 +196,9 @@ code {
   --color-chart-2: var(--chart-2);
   --color-chart-1: var(--chart-1);
   --color-ring: var(--ring);
+  --color-status-info: var(--status-info);
+  --color-status-success: var(--status-success);
+  --color-status-warning: var(--status-warning);
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
@@ -232,6 +244,11 @@ code {
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
+  /* Lighter than the light-theme values: the same hues have to clear 3:1 against
+     a near-black background rather than a white one. */
+  --status-info: oklch(0.72 0.13 255);
+  --status-success: oklch(0.72 0.13 150);
+  --status-warning: oklch(0.78 0.14 75);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);

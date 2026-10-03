@@ -10,20 +10,14 @@
  */
 
 import { Link } from "react-router-dom";
-import {
-  ClipboardCheck,
-  Clock,
-  CreditCard,
-  ExternalLink,
-  MessageSquare,
-  Settings,
-} from "lucide-react";
+import { ExternalLink } from "lucide-react";
 
+import { NotificationTypeIcon } from "@/components/shared/NotificationTypeIcon";
 import { RelativeTime } from "@/components/shared/RelativeTime";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "cn";
 import { useMarkRead } from "@/api/hooks";
-import type { Notification, NotificationPriority, NotificationType } from "@/api/types";
+import type { Notification, NotificationPriority } from "@/api/types";
 
 interface NotificationRowProps {
   notification: Notification;
@@ -58,7 +52,7 @@ export function NotificationRow({
 
   const body = (
     <div className="flex gap-3">
-      <span className="mt-0.5 shrink-0" aria-hidden="true">
+      <span className="mt-0.5 shrink-0">
         <NotificationTypeIcon type={notification.type} />
       </span>
 
@@ -114,27 +108,4 @@ export function NotificationRow({
       {body}
     </Link>
   );
-}
-
-/**
- * One icon per notification type.
- *
- * Keyed to the API's enum - task_assigned, payment_received, deadline_warning,
- * comment, system - rather than to delivery channels. A notification's type is
- * what it is about, and channel is already visible from where it arrived; a
- * single user task assigned by email and by push should look like the same event.
- */
-function NotificationTypeIcon({ type }: { type: NotificationType }) {
-  switch (type) {
-    case "task_assigned":
-      return <ClipboardCheck className="size-4" />;
-    case "payment_received":
-      return <CreditCard className="size-4" />;
-    case "deadline_warning":
-      return <Clock className="size-4" />;
-    case "comment":
-      return <MessageSquare className="size-4" />;
-    case "system":
-      return <Settings className="size-4" />;
-  }
 }
