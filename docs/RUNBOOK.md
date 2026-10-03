@@ -120,6 +120,48 @@ Neon and Upstash free tiers count the same way, so the ceiling is real and low.
 Past it, email jobs sit delayed until UTC midnight. `emailQuota.used` and
 `emailQuota.resetsAtUtc` are in the same payload.
 
+## When only push is missing
+
+A fourth case is worth separating out, because it looks like none of the above:
+in-app and email both arrive, one user's phone stays silent, and the queues are
+empty. Nothing is queued wrongly - the delivery happened and the provider
+rejected it, or it never got as far as the browser.
+
+**Three things have to line up**, and each fails quietly:
+
+1. `FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL` and `FCM_PRIVATE_KEY` in `backend/.env`.
+   All three or none - a partial set reports a permanent failure into the
+   dead-letter queue rather than skipping.
+2. `VITE_VAPID_PUBLIC_KEY` in `frontend/.env`, set at **build** time. Vite
+   inlines it, so changing it needs a redeploy, not a restart. It is the public
+   half of the pair FCM signs with; see `frontend/.env.example`.
+3. `frontend/public/sw.js` actually being served. Push cannot work without it,
+   and a worker that failed to register makes the opt-in button hang rather than
+   error - `DevicesPage` awaits `navigator.serviceWorker.ready`, which never
+   settles when nothing has registered one.
+
+**A VAPID mismatch has a distinctive symptom**: subscribing fails with a 403 and
+`devices.pushSubscriptionToken` is never written, while the in-app channel works
+perfectly. The key pair has to come from the same Firebase project as the
+backend's `FCM_*` credentials.
+
+**A revoked permission looks identical and is not fixable server-side.**
+`Notification.permission === "denied"` in the browser means the site will not
+prompt again, so the user has to clear it in site settings. The push page
+distinguishes this state from "not asked yet" rather than offering a button that
+cannot work.
+
+To confirm a browser is subscribed at all:
+
+```js
+await (await navigator.serviceWorker.ready).pushManager.getSubscription()
+```
+
+`null` means nothing was ever subscribed on that device - check steps 1 to 3. A
+subscription object that FCM has since rejected gets deleted from the database
+as a dead token, so a token that disappears after a deploy is the system working
+as intended rather than data loss.
+
 ## The alert
 
 `npm run alert` in `backend/` reads the same `/internal/queue-stats` this page
