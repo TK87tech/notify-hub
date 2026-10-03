@@ -63,3 +63,21 @@ export const forbidden = (m = "You do not have access to this") => new ApiError(
 export const notFound = (m = "Not found") => new ApiError("not_found", m);
 export const conflict = (m: string) => new ApiError("conflict", m);
 export const unprocessable = (m: string, d?: unknown) => new ApiError("unprocessable", m, d);
+export const tooManyRequests = (m = "Too many requests") => new ApiError("rate_limited", m);
+
+/**
+ * True when Prisma rejected a write because a unique constraint already holds.
+ *
+ * P2002 is the only one of Prisma's codes worth branching on by number, and
+ * even here it is better to read the error than to assume: a route that treats
+ * *any* insert failure as "somebody else got there first" will delete its own
+ * row and report success while the database is simply down.
+ */
+export function isUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code?: unknown }).code === "P2002"
+  );
+}

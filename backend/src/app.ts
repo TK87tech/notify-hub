@@ -10,6 +10,10 @@
  *   5. routes
  *   6. notFound        nothing matched
  *   7. errorHandler    always last, four arguments, or Express ignores it
+ *
+ * Note what is NOT here: the Socket.IO gateway. That attaches to an HTTP
+ * server, not to the app, and only in index.ts - so a test can build the whole
+ * API without opening a socket or subscribing to Redis.
  */
 
 import express, { type Express } from "express";
@@ -17,11 +21,13 @@ import helmet from "helmet";
 import cors from "cors";
 import { pinoHttp, type Options as PinoHttpOptions } from "pino-http";
 
-import { env } from "./config/env.js";
+import { allowedOrigins } from "./config/env.js";
 import { logger } from "./lib/logger.js";
 import { healthRouter } from "./api/health.js";
+import { authRouter } from "./api/auth.js";
 import { notificationApiRouter, internalNotificationRouter } from "./api/notifications.js";
 import { preferencesApiRouter } from "./api/preferences.js";
+import { operationsRouter, operationsServiceRouter } from "./api/operations.js";
 
 import { requireUser, requireService } from "./middleware/auth.js";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
@@ -29,8 +35,9 @@ import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
 export function createApp(): Express {
   const app = express();
 
-  // Render and most hosts sit behind a proxy. Without this, req.ip is the
-  // proxy's address and rate limiting later would throttle everyone as one.
+  // Render, Vercel and most hosts sit behind a proxy. Without this, req.ip is
+  // the proxy's address and the sign-in rate limiter would throttle every
+  // visitor as one.
   app.set("trust proxy", 1);
   app.disable("x-powered-by");
 
@@ -38,7 +45,7 @@ export function createApp(): Express {
 
   app.use(
     cors({
-      origin: env.APP_URL,
+      origin: allowedOrigins,
       credentials: true,
       // Both auth headers must be allowed through the preflight, or the
       // browser refuses to send them and every call fails with a CORS error
@@ -67,9 +74,17 @@ export function createApp(): Express {
   // --- Public -------------------------------------------------------------
   app.use(healthRouter);
 
-  // --- Browser routes: JWT required ---------------------------------------
-  // Bell adds notifications and Ember adds preferences under here.
+  // --- Browser routes ------------------------------------------------------
   const api = express.Router();
+
+  // Sign-in is the one browser route that cannot need a token, so /auth is
+  // mounted ahead of requireUser. The router guards its own protected routes
+  // (/auth/session) with requireUser directly - do not "tidy" this by moving
+  // the mount below line 90, which would either lock sign-in out or leave
+  // /auth/session unguarded.
+  api.use("/auth", authRouter);
+
+  // Everything else requires a JWT.
   api.use(requireUser);
 
   // Temporary, until the real routes land. Proves the middleware works end
@@ -80,6 +95,7 @@ export function createApp(): Express {
 
   api.use(notificationApiRouter);
   api.use(preferencesApiRouter);
+  api.use(operationsRouter);
   app.use("/api/v1", api);
 
   // --- Service routes: shared key required --------------------------------
@@ -92,6 +108,7 @@ export function createApp(): Express {
   });
 
   internal.use(internalNotificationRouter);
+  internal.use(operationsServiceRouter);
   app.use("/internal", internal);
 
   // --- Tail ----------------------------------------------------------------

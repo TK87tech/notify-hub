@@ -9,13 +9,15 @@
 import { Router, type ErrorRequestHandler } from "express";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
-import { NotificationType, Priority } from "@prisma/client";
+import { Channel as PrismaChannel, NotificationType, Priority } from "@prisma/client";
 
 import { prisma } from "../lib/prisma.js";
-import { badRequest, notFound } from "../lib/errors.js";
+import { badRequest, isUniqueViolation, notFound } from "../lib/errors.js";
 import { currentUserId } from "../middleware/auth.js";
-import { enqueueNotification } from "../lib/queue.js";
-import { quietHoursDelayMs } from "../lib/quiet-hours.js";
+import { deliverNow } from "../lib/delivery.js";
+import type { QuietHours } from "../lib/quiet-hours.js";
+import { publishToUser } from "../realtime/publisher.js";
+import { REALTIME_EVENTS } from "../realtime/events.js";
 
 const notificationTypeSchema = z.enum([
   "task_assigned",
@@ -27,6 +29,11 @@ const notificationTypeSchema = z.enum([
 
 const prioritySchema = z.enum(["urgent", "normal", "low"]).default("normal");
 
+/**
+ * The defaults, straight from docs/BELL-DECISIONS.md. Kept here and in the
+ * seed script because they are the contract's promise to a user who has never
+ * opened the settings page.
+ */
 const DEFAULT_CHANNEL_SET = {
   inApp: true,
   email: true,
@@ -44,6 +51,22 @@ const DEFAULT_CHANNELS: Record<
   system: { inApp: true, email: true, push: false },
 };
 
+/** Which Prisma channel each contract key maps to. */
+const CHANNEL_BY_KEY = {
+  inApp: PrismaChannel.in_app,
+  email: PrismaChannel.email,
+  push: PrismaChannel.push,
+} as const;
+
+type ChannelKey = keyof typeof CHANNEL_BY_KEY;
+
+/**
+ * Merges the saved preferences over the defaults, one key at a time.
+ *
+ * Deliberately forgiving: a preference row saved before a notification type
+ * existed simply has no entry for it, and that must fall back to the default
+ * rather than silently disabling a channel the user never turned off.
+ */
 function normalizeChannelSet(
   raw: unknown,
   type: string,
@@ -58,6 +81,33 @@ function normalizeChannelSet(
     inApp: Boolean(pref?.inApp ?? base.inApp),
     email: Boolean(pref?.email ?? base.email),
     push: Boolean(pref?.push ?? base.push),
+  };
+}
+
+function enabledChannels(
+  raw: unknown,
+  type: string,
+): PrismaChannel[] {
+  const set = normalizeChannelSet(raw, type);
+
+  return (Object.keys(CHANNEL_BY_KEY) as ChannelKey[])
+    .filter((key) => set[key])
+    .map((key) => CHANNEL_BY_KEY[key]);
+}
+
+function quietHoursOf(preference: {
+  quietStart: string | null;
+  quietEnd: string | null;
+  quietTimezone: string | null;
+} | null): QuietHours | null {
+  if (!preference?.quietStart || !preference.quietEnd || !preference.quietTimezone) {
+    return null;
+  }
+
+  return {
+    start: preference.quietStart,
+    end: preference.quietEnd,
+    timezone: preference.quietTimezone,
   };
 }
 
@@ -111,6 +161,10 @@ function buildNotificationPayload(notification: {
   };
 }
 
+async function unreadCountFor(userId: string): Promise<number> {
+  return prisma.notification.count({ where: { userId, read: false } });
+}
+
 export const notificationApiRouter = Router();
 
 notificationApiRouter.get("/notifications", async (req, res) => {
@@ -130,6 +184,17 @@ notificationApiRouter.get("/notifications", async (req, res) => {
     .default("all")
     .parse(req.query.status ?? "all");
 
+  /**
+   * Issue #25 asks for a filter by type as well as by read state. The contract
+   * does not have it yet, so it is accepted as an optional query parameter and
+   * simply ignored when absent - the contract gains the parameter in the same
+   * pull request that the frontend starts sending it.
+   */
+  const type =
+    typeof req.query.type === "string"
+      ? notificationTypeSchema.safeParse(req.query.type)
+      : null;
+
   const cursor = decodeCursor(
     typeof req.query.cursor === "string" ? req.query.cursor : undefined,
   );
@@ -137,6 +202,7 @@ notificationApiRouter.get("/notifications", async (req, res) => {
   const where: Prisma.NotificationWhereInput = {
     userId,
     ...(status === "unread" ? { read: false } : {}),
+    ...(type?.success ? { type: type.data as NotificationType } : {}),
     ...(cursor
       ? {
           OR: [
@@ -177,11 +243,7 @@ notificationApiRouter.get("/notifications", async (req, res) => {
 notificationApiRouter.get("/notifications/unread-count", async (req, res) => {
   const userId = currentUserId(req);
 
-  const unreadCount = await prisma.notification.count({
-    where: { userId, read: false },
-  });
-
-  res.json({ unreadCount });
+  res.json({ unreadCount: await unreadCountFor(userId) });
 });
 
 notificationApiRouter.patch("/notifications/:id/read", async (req, res) => {
@@ -191,6 +253,8 @@ notificationApiRouter.patch("/notifications/:id/read", async (req, res) => {
     where: { id: req.params.id },
   });
 
+  // Same 404 for "does not exist" and "belongs to somebody else". A different
+  // status would confirm that somebody else's notification id is real.
   if (!notification || notification.userId !== userId) {
     throw notFound("Notification not found");
   }
@@ -200,8 +264,13 @@ notificationApiRouter.patch("/notifications/:id/read", async (req, res) => {
     data: { read: true, readAt: new Date() },
   });
 
-  const unreadCount = await prisma.notification.count({
-    where: { userId, read: false },
+  const unreadCount = await unreadCountFor(userId);
+
+  // Keeps every other tab and the phone in agreement. The REST call is the one
+  // code path; the socket just tells the others what happened.
+  publishToUser(userId, REALTIME_EVENTS.notificationRead, {
+    id: updated.id,
+    unreadCount,
   });
 
   res.json({
@@ -228,9 +297,9 @@ notificationApiRouter.patch("/notifications/read-all", async (req, res) => {
     data: { read: true, readAt: new Date() },
   });
 
-  const unreadCount = await prisma.notification.count({
-    where: { userId, read: false },
-  });
+  const unreadCount = await unreadCountFor(userId);
+
+  publishToUser(userId, REALTIME_EVENTS.notificationReadAll, { unreadCount });
 
   res.json({
     updated: updated.count,
@@ -246,6 +315,8 @@ const internalNotificationBodySchema = z.object({
   link: z.string().optional().nullable(),
   priority: prioritySchema,
   idempotencyKey: z.string().optional(),
+  /** Reminder-style scheduling: when this should actually go out. */
+  deliverAt: z.string().datetime().optional(),
   data: z.record(z.string(), z.any()).default({}),
 });
 
@@ -263,23 +334,19 @@ internalNotificationRouter.post("/notifications", async (req, res) => {
     throw notFound("User not found");
   }
 
-  const channelSet = normalizeChannelSet(
-    user.preference?.channels ?? {},
-    payload.type,
-  );
+  const channels = enabledChannels(user.preference?.channels ?? {}, payload.type);
 
-  const enabledChannels = Object.entries(channelSet)
-    .filter(([, enabled]) => enabled)
-    .map(([name]) => name);
-
-  if (enabledChannels.length === 0) {
-    res.status(202).json({
-      jobId: null,
-      status: "suppressed",
-    });
+  if (channels.length === 0) {
+    res.status(202).json({ jobId: null, status: "suppressed" });
     return;
   }
 
+  /**
+   * Idempotency is checked before the insert, and the insert of the key itself
+   * is what makes it safe against two producers racing: the key's primary key
+   * rejects the second one, which is caught below and answered as a duplicate
+   * rather than a 409.
+   */
   if (payload.idempotencyKey) {
     const existing = await prisma.idempotencyKey.findUnique({
       where: { key: payload.idempotencyKey },
@@ -307,44 +374,57 @@ internalNotificationRouter.post("/notifications", async (req, res) => {
   });
 
   if (payload.idempotencyKey) {
-    await prisma.idempotencyKey.create({
-      data: {
-        key: payload.idempotencyKey,
-        notificationId: notification.id,
-      },
-    });
+    try {
+      await prisma.idempotencyKey.create({
+        data: {
+          key: payload.idempotencyKey,
+          notificationId: notification.id,
+        },
+      });
+    } catch (err) {
+      /**
+       * Only P2002 means somebody else got here first. Anything else - the
+       * connection dropping, the table missing - has to propagate: swallowing it
+       * would delete a notification that was never delivered and answer
+       * "duplicate", so the producer would never retry and the message would
+       * simply vanish.
+       */
+      if (!isUniqueViolation(err)) throw err;
+
+      // The winner's notification is the one that exists and will be delivered,
+      // so retire ours rather than leaving an orphan row behind.
+      await prisma.notification.delete({ where: { id: notification.id } }).catch(() => undefined);
+
+      // The winner's id, not ours. Ours is the row just deleted, so handing it
+      // back would leave the caller holding a jobId that resolves to nothing.
+      const winner = await prisma.idempotencyKey.findUnique({
+        where: { key: payload.idempotencyKey },
+        select: { notificationId: true },
+      });
+
+      res.status(202).json({ jobId: winner?.notificationId ?? null, status: "duplicate" });
+      return;
+    }
   }
 
-  const quietHours =
-    user.preference?.quietStart &&
-    user.preference?.quietEnd &&
-    user.preference?.quietTimezone
-      ? {
-          start: user.preference.quietStart,
-          end: user.preference.quietEnd,
-          timezone: user.preference.quietTimezone,
-        }
-      : null;
+  const deliverAt = payload.deliverAt ? new Date(payload.deliverAt) : undefined;
 
-  // Only low priority waits out quiet hours (docs/BELL-DECISIONS.md);
-  // urgent and normal go straight to the queue.
-  const delay =
-    payload.priority === "low"
-      ? quietHoursDelayMs(quietHours)
-      : 0;
-
-  await enqueueNotification(
+  const outcome = await deliverNow(
     {
       notificationId: notification.id,
       userId: user.id,
+      channels,
       priority: payload.priority,
     },
-    delay,
+    {
+      ...(deliverAt ? { deliverAt } : {}),
+      quietHours: quietHoursOf(user.preference),
+    },
   );
 
   res.status(202).json({
     jobId: notification.id,
-    status: delay > 0 ? "delayed" : "queued",
+    status: deliverAt || outcome.delayed ? "delayed" : "queued",
   });
 });
 
