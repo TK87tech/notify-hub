@@ -105,6 +105,25 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Typecheck
+        if: steps.check.outputs.ready == 'true'
+        working-directory: frontend
+        run: npm run typecheck --if-present
+
+      - name: Lint
+        if: steps.check.outputs.ready == 'true'
+        working-directory: frontend
+        run: npm run lint --if-present
+
+      - name: Verify the generated API types match the contract
+        if: steps.check.outputs.ready == 'true'
+        working-directory: frontend
+        # Regenerates from contracts/openapi.yaml and fails on any diff. Without
+        # this, editing the contract without regenerating leaves the frontend
+        # compiling against the previous shape, and the mismatch only shows up as
+        # a runtime 400 or a missing field.
+        run: npm run api:check --if-present
+
       - name: Test
         if: steps.check.outputs.ready == 'true'
         working-directory: frontend
