@@ -2,18 +2,29 @@ import * as React from "react"
 
 const MOBILE_BREAKPOINT = 768
 
-export function useIsMobile() {
-  const [isMobile, setIsMobile] = React.useState<boolean | undefined>(undefined)
+const query = `(max-width: ${MOBILE_BREAKPOINT - 1}px)`
 
-  React.useEffect(() => {
-    const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`)
-    const onChange = () => {
-      setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
-    }
-    mql.addEventListener("change", onChange)
-    setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
-    return () => mql.removeEventListener("change", onChange)
-  }, [])
+/**
+ * Subscribes to the mobile breakpoint.
+ *
+ * Uses useSyncExternalStore rather than useState plus a useEffect. The previous
+ * version set state inside the effect body, which renders the desktop sidebar
+ * for one frame before correcting itself, and re-runs that extra render on every
+ * mount. useSyncExternalStore is built for exactly this - reading an external
+ * store like matchMedia - and gives a correct first render with no effect.
+ */
+export function useIsMobile(): boolean {
+  return React.useSyncExternalStore(
+    React.useCallback((onStoreChange: () => void) => {
+      const mql = window.matchMedia(query)
 
-  return !!isMobile
+      mql.addEventListener("change", onStoreChange)
+
+      return () => mql.removeEventListener("change", onStoreChange)
+    }, []),
+    () => window.matchMedia(query).matches,
+    // Server snapshot: assume desktop, which is the wider layout and so the
+    // safer default for content that must not overflow.
+    () => false,
+  )
 }

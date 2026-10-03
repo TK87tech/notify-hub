@@ -2,7 +2,8 @@
  * Structured logging.
  *
  * Pretty-printed and readable in development, JSON in production so Render's
- * log viewer and Sentry can parse it.
+ * log viewer and Sentry can parse it. Silent in tests, because a passing suite
+ * that prints four hundred lines of JSON is a suite nobody reads.
  */
 
 import pino from "pino";

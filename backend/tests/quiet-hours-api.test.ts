@@ -64,9 +64,7 @@ describe("quiet hours notification delivery", () => {
       id: "idempotency-1",
     });
 
-    mocks.enqueueNotification.mockResolvedValue({
-      id: "job-1",
-    });
+    mocks.enqueueNotification.mockResolvedValue("job-1");
   });
 
   afterEach(() => {
@@ -105,14 +103,18 @@ describe("quiet hours notification delivery", () => {
     expect(response.status).toBe(202);
     expect(response.body.status).toBe("delayed");
 
-    expect(mocks.enqueueNotification).toHaveBeenCalledWith(
-      {
+    expect(mocks.enqueueNotification).toHaveBeenCalledTimes(3);
+
+    for (const [data, delay] of mocks.enqueueNotification.mock.calls) {
+      expect(delay).toBe(7.5 * 60 * 60 * 1000 + 1000);
+      expect(data).toEqual({
         notificationId: "notification-1",
         userId: "user-1",
+        channel: expect.any(String),
         priority: "low",
-      },
-      7.5 * 60 * 60 * 1000 + 1000,
-    );
+        attempt: 1,
+      });
+    }
   });
 
   it("sends a normal-priority notification immediately during quiet hours", async () => {
@@ -147,14 +149,18 @@ describe("quiet hours notification delivery", () => {
     expect(response.status).toBe(202);
     expect(response.body.status).toBe("queued");
 
-    expect(mocks.enqueueNotification).toHaveBeenCalledWith(
-      {
+    expect(mocks.enqueueNotification).toHaveBeenCalledTimes(3);
+
+    for (const [data, delay] of mocks.enqueueNotification.mock.calls) {
+      expect(delay).toBe(0);
+      expect(data).toEqual({
         notificationId: "notification-1",
         userId: "user-1",
+        channel: expect.any(String),
         priority: "normal",
-      },
-      0,
-    );
+        attempt: 1,
+      });
+    }
   });
 
   it("sends an urgent notification immediately during quiet hours", async () => {
@@ -189,13 +195,17 @@ describe("quiet hours notification delivery", () => {
     expect(response.status).toBe(202);
     expect(response.body.status).toBe("queued");
 
-    expect(mocks.enqueueNotification).toHaveBeenCalledWith(
-      {
+    expect(mocks.enqueueNotification).toHaveBeenCalledTimes(3);
+
+    for (const [data, delay] of mocks.enqueueNotification.mock.calls) {
+      expect(delay).toBe(0);
+      expect(data).toEqual({
         notificationId: "notification-1",
         userId: "user-1",
+        channel: expect.any(String),
         priority: "urgent",
-      },
-      0,
-    );
+        attempt: 1,
+      });
+    }
   });
 });

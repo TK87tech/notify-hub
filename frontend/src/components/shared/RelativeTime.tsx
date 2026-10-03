@@ -1,26 +1,51 @@
+import { useEffect, useState } from "react";
+
+import { formatAge } from "@/lib/format-age";
+
 interface RelativeTimeProps {
   date: Date | string;
+  /**
+   * How often the label is recomputed. The default matches the coarsest unit
+   * shown ("just now" for the first minute), so a list of rows does not
+   * re-render once a second to redisplay the same word.
+   */
+  refreshMs?: number;
 }
 
-export function RelativeTime({ date }: RelativeTimeProps) {
+/**
+ * Relative time, kept honest about the passage of time.
+ *
+ * The obvious implementation reads `Date.now()` during render. That is wrong in
+ * two ways: React treats a render as a pure function of props, so the label
+ * freezes at whatever the time was when the row mounted - a notification from an
+ * hour ago keeps reading "just now" on a page left open all afternoon - and
+ * asking the clock mid-render is an impure read that the React compiler rejects
+ * outright.
+ *
+ * So the current time is state, seeded once and advanced by an interval. The
+ * absolute timestamp is rendered as the element's `title`, which is what makes a
+ * relative label that has drifted recoverable by hover rather than misleading.
+ */
+export function RelativeTime({ date, refreshMs = 60_000 }: RelativeTimeProps) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), refreshMs);
+
+    return () => clearInterval(timer);
+  }, [refreshMs]);
+
   const time = new Date(date).getTime();
-  const now = Date.now();
-  const difference = Math.floor((now - time) / 1000);
 
-  if (difference < 60) {
-    return <span>just now</span>;
-  }
+  // An unparseable date would otherwise render "NaNd ago", which is worse than
+  // admitting the input was bad.
+  if (Number.isNaN(time)) return <span>unknown time</span>;
 
-  if (difference < 3600) {
-    const minutes = Math.floor(difference / 60);
-    return <span>{minutes}m ago</span>;
-  }
+  const absolute = new Date(time).toISOString();
 
-  if (difference < 86400) {
-    const hours = Math.floor(difference / 3600);
-    return <span>{hours}h ago</span>;
-  }
-
-  const days = Math.floor(difference / 86400);
-  return <span>{days}d ago</span>;
+  return (
+    <time dateTime={absolute} title={absolute}>
+      {formatAge(Math.floor((now - time) / 1000))}
+    </time>
+  );
 }

@@ -20,7 +20,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # 22, not 20: jsdom 30's bundled undici calls
+          # worker_threads.markAsUncloneable, which only exists from Node 22.10.
+          # On Node 20 every frontend test file dies at import with
+          # "markAsUncloneable is not a function". Vite 7 wants 22.12+ anyway.
+          node-version: '22'
+
       - name: Lint the OpenAPI contract
         run: npx --yes @redocly/cli lint contracts/openapi.yaml --skip-rule no-empty-servers
 
@@ -46,7 +51,7 @@ jobs:
       - if: steps.check.outputs.ready == 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
@@ -96,7 +101,7 @@ jobs:
       - if: steps.check.outputs.ready == 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -104,6 +109,25 @@ jobs:
         if: steps.check.outputs.ready == 'true'
         working-directory: frontend
         run: npm ci
+
+      - name: Typecheck
+        if: steps.check.outputs.ready == 'true'
+        working-directory: frontend
+        run: npm run typecheck --if-present
+
+      - name: Lint
+        if: steps.check.outputs.ready == 'true'
+        working-directory: frontend
+        run: npm run lint --if-present
+
+      - name: Verify the generated API types match the contract
+        if: steps.check.outputs.ready == 'true'
+        working-directory: frontend
+        # Regenerates from contracts/openapi.yaml and fails on any diff. Without
+        # this, editing the contract without regenerating leaves the frontend
+        # compiling against the previous shape, and the mismatch only shows up as
+        # a runtime 400 or a missing field.
+        run: npm run api:check --if-present
 
       - name: Test
         if: steps.check.outputs.ready == 'true'

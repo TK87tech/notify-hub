@@ -14,12 +14,69 @@ servers:
     description: Deployed (Render free tier)
 
 tags:
+  - name: Auth
   - name: Notifications
   - name: Preferences
   - name: Devices
+  - name: Operations
   - name: Internal
 
 paths:
+  /auth/sign-in:
+    post:
+      tags: [Auth]
+      summary: Exchange email and password for a bearer token
+      description: >
+        The only browser route that does not require a token. A failed sign-in
+        always answers 401 with the same message whether or not the account
+        exists, so this cannot be used to discover which emails are registered.
+        Repeated failures from one address are rate limited.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email, example: "tk@notifyhub.test" }
+                password: { type: string, format: password, example: "correct-horse-battery-staple" }
+      responses:
+        '200':
+          description: Signed in
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401':
+          description: >
+            Email or password is incorrect. Identical for both failure cases.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/session:
+    get:
+      tags: [Auth]
+      summary: The signed-in user, as the database currently has them
+      description: >
+        Re-reads name and email rather than echoing the token, so a renamed
+        account shows its current details on the next page load. Answers 401 if
+        the token is valid but the account behind it is gone.
+      responses:
+        '200':
+          description: The current user
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
   /notifications:
     get:
       tags: [Notifications]
@@ -35,6 +92,13 @@ paths:
         - name: status
           in: query
           schema: { type: string, enum: [all, unread] , default: all }
+        - name: type
+          in: query
+          description: >
+            Filter to one notification type. An unrecognised value is ignored
+            rather than rejected, so a client sending a type this version does
+            not know about still gets an inbox.
+          schema: { $ref: '#/components/schemas/NotificationType' }
       responses:
         '200':
           description: A page of notifications
@@ -52,6 +116,7 @@ paths:
                     type: string
                     nullable: true
                     example: "2026-09-21T08:14:00.000Z_01J9Z"
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
   /notifications/unread-count:
@@ -169,8 +234,11 @@ paths:
       summary: Producer endpoint — enqueue a notification
       description: >
         Called by other parts of the system, never by the browser. Requires the
-        x-service-key header. Returns 202 as soon as the job is queued.
-        Send the same idempotencyKey twice and the second call is ignored.
+        x-service-key header. Returns 202 as soon as the jobs are queued — one
+        per enabled channel, not one for the notification, so that a channel
+        failing cannot stop the others.
+        Send the same idempotencyKey twice and the second call is ignored; the
+        response then carries the notificationId of the call that won.
       security:
         - serviceKey: []
       requestBody:
@@ -188,21 +256,140 @@ paths:
                 link: { type: string, example: "/tasks/91" }
                 priority: { type: string, enum: [urgent, normal, low], default: normal }
                 idempotencyKey: { type: string, example: "task-91-assigned-u42" }
+                deliverAt:
+                  type: string
+                  format: date-time
+                  description: >
+                    Hold the delivery until this moment — reminders and deadline
+                    warnings. Takes precedence over the recipient's quiet hours:
+                    a reminder set for 09:00 must not be pulled back to 07:00.
+                    Must be RFC 3339; anything else is a 400.
+                  example: "2026-10-04T09:00:00.000Z"
                 data:
                   type: object
                   additionalProperties: true
       responses:
         '202':
-          description: Accepted and queued
+          description: Accepted
           content:
             application/json:
               schema:
                 type: object
                 required: [jobId, status]
                 properties:
-                  jobId: { type: string }
-                  status: { type: string, enum: [queued, duplicate, suppressed] }
+                  jobId:
+                    type: string
+                    nullable: true
+                    description: >
+                      The notification id, which every per-channel job is keyed
+                      on. Null when the user has every channel for this type
+                      switched off, or when a duplicate was lost a race and the
+                      winning key could not be read back.
+                  status:
+                    type: string
+                    enum: [queued, delayed, duplicate, suppressed]
+                    description: >
+                      queued  — jobs are waiting to be picked up now.
+                      delayed — jobs carry a delay, from deliverAt or from the
+                                 recipient's quiet hours.
+                      duplicate — this idempotency key was already used.
+                      suppressed — no channel is enabled for this type.
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /internal/queue-stats:
+    get:
+      tags: [Operations, Internal]
+      summary: The same statistics, for the alert job and the runbook
+      description: >
+        Identical body to GET /ops/queue-stats minus the `you` block, and
+        reachable with the service key so a monitor can poll it without a user
+        token.
+      security:
+        - serviceKey: []
+      responses:
+        '200':
+          description: Queue and delivery statistics
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QueueStats' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /internal/dead-letters:
+    get:
+      tags: [Operations, Internal]
+      summary: Everything that gave up, with why
+      description: >
+        A job lands here only after all five attempts failed, or immediately on
+        a permanent failure. Nothing removes entries automatically, so this is
+        the evidence for the runbook.
+      security:
+        - serviceKey: []
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 100 }
+      responses:
+        '200':
+          description: Dead-lettered deliveries, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/DeadLetterEntry' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /internal/dead-letters/requeue:
+    post:
+      tags: [Operations, Internal]
+      summary: Re-queue one dead-lettered delivery
+      description: >
+        The manual half of the runbook. Puts the delivery back on its channel's
+        queue with a full set of attempts and removes the dead-letter entry, so
+        a provider outage does not have to be paid for by hand.
+      security:
+        - serviceKey: []
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema: { type: string, description: The dead-letter job id }
+      responses:
+        '200':
+          description: Re-queued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, notificationId, channel]
+                properties:
+                  status: { type: string, enum: [requeued] }
+                  notificationId: { type: string }
+                  channel: { type: string, enum: [in_app, email, push] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /ops/queue-stats:
+    get:
+      tags: [Operations]
+      summary: Queue depth, failure rate and email quota
+      description: >
+        The signed-in view of the system's health. Deliberately not restricted
+        to a staff role: this is a portfolio project with one shared team
+        account, and the value of the view comes from being openable without a
+        second login. It exposes counts, durations and error strings - no user
+        data - so the worst case is that somebody learns how busy the queue is.
+      responses:
+        '200':
+          description: Queue and delivery statistics
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QueueStats' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
 components:
@@ -220,6 +407,172 @@ components:
     NotificationType:
       type: string
       enum: [task_assigned, payment_received, deadline_warning, comment, system]
+
+    User:
+      type: object
+      required: [id, email]
+      description: >
+        Never includes passwordHash. There is no field for it and there must
+        never be one - the sign-in handler selects columns explicitly for the
+        same reason.
+      properties:
+        id: { type: string, example: "01J9ZQ8K3N" }
+        email: { type: string, format: email }
+        name: { type: string, nullable: true, example: "TK" }
+
+    Session:
+      type: object
+      required: [token, user]
+      properties:
+        token:
+          type: string
+          description: >
+            Bearer token. Expires after 12 hours. There is no refresh flow, so
+            expiry means signing in again - which is why it is not seven days.
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        user: { $ref: '#/components/schemas/User' }
+
+    QueueStatus:
+      type: object
+      required: [name, waiting, active, delayed, completed, failed, paused]
+      properties:
+        name: { type: string, example: "notifications" }
+        waiting: { type: integer, description: "Ready to be picked up" }
+        active: { type: integer, description: "Being delivered right now" }
+        delayed: { type: integer, description: "Held for quiet hours, a quota or a reminder" }
+        completed: { type: integer, description: "Delivered and trimmed after an hour" }
+        failed: { type: integer, description: "Retrying, or dead-lettered once attempts ran out" }
+        paused:
+          type: boolean
+          description: >
+            A boolean rather than a count: BullMQ's getJobCounts reports no
+            paused state in this version, and an invented number here would be
+            worse than none. A paused queue is the most useful thing to know when
+            notifications stop arriving.
+
+    DeliveryStats:
+      type: object
+      required: [windowHours, sent, failed, dead, failureRate, byChannel]
+      properties:
+        windowHours: { type: integer, example: 24 }
+        sent: { type: integer }
+        failed: { type: integer }
+        dead: { type: integer }
+        failureRate:
+          type: number
+          format: float
+          description: >
+            failed / (sent + failed). Dead letters are excluded: a dead letter is
+            the system correctly giving up, and counting it twice makes the rate
+            look worse than it is.
+          example: 0.0231
+        byChannel:
+          type: object
+          additionalProperties:
+            type: object
+            required: [sent, failed, dead]
+            properties:
+              sent: { type: integer }
+              failed: { type: integer }
+              dead: { type: integer }
+
+    ProcessingStats:
+      type: object
+      required: [p50Ms, p95Ms, samples]
+      description: >
+        Producer row created to provider accepted it, for successful deliveries
+        in the window. BullMQ's processedOn is deliberately not used: that
+        measures how long the worker held the job, and completed jobs are trimmed
+        after an hour. Percentiles rather than a mean, because a delivery that
+        needed retries waited out the backoff and would drag an average towards
+        the failures already reported above.
+      properties:
+        p50Ms:
+          type: integer
+          nullable: true
+          description: Null when nothing has been delivered in the window
+          example: 412
+        p95Ms: { type: integer, nullable: true, example: 8391 }
+        samples: { type: integer, description: Successful deliveries behind these percentiles }
+
+    QueueStats:
+      type: object
+      required:
+        [status, checkedAt, redis, depth, queues, deadLetter, deliveries, processing, emailQuota]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded, failing]
+          description: >
+            failing when Redis is unreachable, when the dead-letter queue is at or
+            over DLQ_FAIL_THRESHOLD, or when a quarter of deliveries failed.
+            degraded at half those thresholds, or when more than 500 jobs are
+            waiting.
+        checkedAt: { type: string, format: date-time }
+        redis:
+          type: object
+          required: [reachable]
+          properties:
+            reachable: { type: boolean }
+        depth:
+          type: object
+          required: [total, waiting, active, delayed]
+          properties:
+            total: { type: integer, description: "Waiting plus delayed, across both queues" }
+            waiting: { type: integer }
+            active: { type: integer }
+            delayed: { type: integer }
+        queues:
+          type: object
+          required: [notifications, email]
+          properties:
+            notifications: { $ref: '#/components/schemas/QueueStatus' }
+            email: { $ref: '#/components/schemas/QueueStatus' }
+        deadLetter:
+          type: object
+          required: [size, warnThreshold, failThreshold]
+          properties:
+            size: { type: integer }
+            warnThreshold: { type: integer, example: 10 }
+            failThreshold: { type: integer, example: 50 }
+        deliveries: { $ref: '#/components/schemas/DeliveryStats' }
+        processing: { $ref: '#/components/schemas/ProcessingStats' }
+        emailQuota:
+          type: object
+          required: [used, limit, resetsAtUtc]
+          properties:
+            used: { type: integer, description: "Against the UTC day, which is how Brevo counts" }
+            limit: { type: integer, example: 300 }
+            resetsAtUtc: { type: string, format: date-time }
+        you:
+          type: object
+          description: Present only on the signed-in route
+          required: [unreadCount]
+          properties:
+            unreadCount: { type: integer }
+
+    DeadLetterEntry:
+      type: object
+      required: [id, queuedAt, permanent]
+      properties:
+        id: { type: string, description: "Pass back to requeue" }
+        queuedAt: { type: string, format: date-time }
+        notificationId: { type: string, nullable: true }
+        userId: { type: string, nullable: true }
+        channel: { type: string, enum: [in_app, email, push], nullable: true }
+        reason:
+          type: string
+          nullable: true
+          description: One line, suitable for a log or an alert subject
+          example: "retries exhausted"
+        error: { type: string, nullable: true, description: "The provider's own message" }
+        permanent:
+          type: boolean
+          description: >
+            True when the channel said this will never work, as opposed to
+            running out of retries. Distinguishes "this address is invalid" from
+            "Brevo was briefly down".
+        failedAt: { type: string, format: date-time, nullable: true }
 
     Notification:
       type: object
@@ -291,6 +644,11 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
     NotFound:
       description: Not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    RateLimited:
+      description: Too many requests
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }

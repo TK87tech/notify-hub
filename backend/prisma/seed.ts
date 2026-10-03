@@ -5,13 +5,20 @@
  * and unread, plus preferences and a device. Pulse and Beacon can point the
  * frontend at a real backend and see a realistic list straight away.
  *
+ * Both seeded accounts get the password below, so the sign-in screen has
+ * something to sign in with on a fresh clone.
+ *
  * Run:  npm run db:seed
  * Safe to run repeatedly - it clears its own data first.
  */
 
 import { PrismaClient, NotificationType, Priority, Channel, DeliveryStatus, DevicePlatform } from "@prisma/client";
+import { hashPassword } from "../src/lib/password.js";
 
 const prisma = new PrismaClient();
+
+/** Development-only credential. Documented in backend/README.md and the root README. */
+const SEED_PASSWORD = process.env.SEED_PASSWORD ?? "notifyhub123";
 
 /** The default every user starts with, until they change it. */
 const DEFAULT_CHANNELS = {
@@ -35,10 +42,15 @@ async function main() {
   await prisma.idempotencyKey.deleteMany();
   await prisma.user.deleteMany();
 
+  // scrypt is deliberately slow; hashing twice would double the wait for
+  // nothing.
+  const passwordHash = await hashPassword(SEED_PASSWORD);
+
   const tk = await prisma.user.create({
     data: {
       email: "tk@notifyhub.test",
       name: "TK",
+      passwordHash,
       preference: {
         create: {
           channels: DEFAULT_CHANNELS,
@@ -60,6 +72,7 @@ async function main() {
     data: {
       email: "ada@notifyhub.test",
       name: "Ada",
+      passwordHash,
       preference: { create: { channels: DEFAULT_CHANNELS } },
     },
   });
@@ -167,6 +180,7 @@ async function main() {
   console.log(`  users:          2  (${tk.email}, ${ada.email})`);
   console.log(`  notifications:  ${notifications.length + 1}`);
   console.log(`  unread for TK:  ${unread}`);
+  console.log(`  password:       ${SEED_PASSWORD}  (both accounts)`);
   console.log("Done.");
 }
 

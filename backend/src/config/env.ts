@@ -15,10 +15,33 @@ import "dotenv/config";
 
 import { z } from "zod";
 
+/**
+ * "1,2,3" -> ["1","2","3"]. Empty means "no extra origins", not "no CORS":
+ * an empty APP_URL list would lock the browser out entirely.
+ */
+const csv = (fallback: string[]) =>
+  z
+    .string()
+    .optional()
+    .transform((raw) =>
+      (raw ?? "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean),
+    )
+    .pipe(z.array(z.string().url()));
+
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(4000),
   APP_URL: z.string().default("http://localhost:5173"),
+
+  /**
+   * Extra browser origins allowed by CORS and by the Socket.IO handshake.
+   * Needed because the frontend lives on Vercel and the API on Render, so the
+   * production origin is not APP_URL.
+   */
+  CORS_ORIGINS: csv([]),
 
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required - see backend/.env.example"),
   REDIS_URL: z.string().default("redis://localhost:6379"),
@@ -29,7 +52,27 @@ const schema = z.object({
   BREVO_API_KEY: z.string().default(""),
   EMAIL_FROM: z.string().default("no-reply@example.com"),
 
-  LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
+  /**
+   * Brevo's free tier sends 300 emails a day. The email worker runs with a
+   * short-window limiter and this hard daily ceiling on top of it, so a burst
+   * cannot silently push us over and get the account throttled. See
+   * docs/RUNBOOK.md for the arithmetic.
+   */
+  EMAIL_DAILY_LIMIT: z.coerce.number().int().positive().default(300),
+  EMAIL_RATE_MAX: z.coerce.number().int().positive().default(20),
+  EMAIL_RATE_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
+
+  FCM_PROJECT_ID: z.string().default(""),
+  FCM_CLIENT_EMAIL: z.string().default(""),
+  FCM_PRIVATE_KEY: z.string().default(""),
+
+  SENTRY_DSN: z.string().default(""),
+
+  // "silent" is pino's own level, kept here so LOG_LEVEL=silent is a valid
+  // thing to put in a .env when somebody wants a completely quiet run.
+  LOG_LEVEL: z
+    .enum(["silent", "fatal", "error", "warn", "info", "debug", "trace"])
+    .default("info"),
 });
 
 export type Env = z.infer<typeof schema>;
@@ -53,3 +96,9 @@ export const env = load();
 
 export const isProduction = env.NODE_ENV === "production";
 export const isTest = env.NODE_ENV === "test";
+
+/**
+ * Every origin the browser is allowed to talk to us from. APP_URL always goes
+ * first so a single-origin local setup needs no extra configuration.
+ */
+export const allowedOrigins = [env.APP_URL, ...env.CORS_ORIGINS];

@@ -12,6 +12,7 @@ import { ZodError } from "zod";
 import { Prisma } from "@prisma/client";
 import { ApiError, notFound } from "../lib/errors.js";
 import { logger } from "../lib/logger.js";
+import { Sentry } from "../lib/sentry.js";
 import { isProduction } from "../config/env.js";
 
 /** Anything that reaches the end of the chain was never routed. */
@@ -61,9 +62,11 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
     return;
   }
 
-  // Anything else is a bug. Log it in full, tell the caller nothing useful -
-  // stack traces in a response body are how internals leak.
+  // Anything else is a bug. Log it in full, report it, and tell the caller
+  // nothing useful - stack traces in a response body are how internals leak.
   logger.error({ err, path: req.path, method: req.method }, "unhandled error");
+  Sentry.captureException(err, { tags: { path: req.path, method: req.method } });
+
   res.status(500).json({
     error: {
       code: "internal",
