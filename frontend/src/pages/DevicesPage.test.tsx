@@ -20,6 +20,11 @@ import userEvent from "@testing-library/user-event";
 const VAPID = "BOq0-example-vapid-key-value_1234567";
 const ENDPOINT = "https://fcm.googleapis.com/fcm/send/abc123";
 
+/** Pinned so `detectPlatform()` is deterministic - jsdom otherwise reports the
+ * host, which made this pass on Windows and fail on the Linux runner. */
+const WINDOWS_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120";
+
 interface Loaded {
   Page: React.ComponentType;
   render: typeof import("@/test/render").renderWithProviders;
@@ -55,6 +60,8 @@ function stubBrowser(current: NotificationPermission, outcome: NotificationPermi
     configurable: true,
     value: { ready: Promise.resolve({ pushManager: { subscribe } }) },
   });
+
+  Object.defineProperty(navigator, "userAgent", { configurable: true, value: WINDOWS_UA });
 
   return { requestPermission, subscribe };
 }
@@ -132,7 +139,9 @@ describe("DevicesPage", () => {
 
     expect(calls).toHaveLength(1);
     expect(calls[0][1].method).toBe("POST");
-    expect(JSON.parse(String(calls[0][1].body))).toEqual({ token: ENDPOINT, platform: "web" });
+    // `windows` follows from the pinned UA, which is what lets this assertion hold
+    // on the Linux runner as well as locally.
+    expect(JSON.parse(String(calls[0][1].body))).toEqual({ token: ENDPOINT, platform: "windows" });
   });
 
   it("does not claim success when permission is refused", async () => {
