@@ -1,21 +1,14 @@
 /**
  * Quiet hours and per-type channel preferences. Issue #24.
  *
- * Two things about the contract shape are worth stating, because both are easy to
- * get wrong and neither fails loudly:
- *
- *   - `channels` is a map keyed by notification type, not a single
- *     `{inApp, email, push}` triple. So this page edits one ChannelSet per type,
- *     and a type the API has never heard of keeps its defaults rather than
- *     disappearing.
- *   - `quietHours` is nullable and has no `enabled` flag. "Enabled" therefore
- *     means "non-null": turning quiet hours on means creating the object, and
- *     turning them off means clearing it to null. Adding an `enabled` boolean
- *     here would send a field the API does not declare.
- *
  * Edits are held locally and committed with an explicit Save rather than written
  * per keystroke, so a page navigation cannot lose somebody's changes and a slider
  * drag cannot fire a dozen requests.
+ *
+ * This file is the rendering. The rules for what an edit actually does to the
+ * payload - the nullable `quietHours` object, the per-type channel map - are in
+ * `features/preferences/preferences-draft.ts`, where they can be tested without
+ * mounting a page.
  */
 
 import { useState } from "react";
@@ -37,24 +30,17 @@ import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/shared/EmptyState";
+import {
+  CHANNELS,
+  isDirty as draftIsDirty,
+  setChannel as setChannelIn,
+  setQuietHours as withQuietHours,
+  toggleQuietHours as withQuietHoursToggled,
+  typeLabel,
+  type QuietHours,
+} from "@/features/preferences/preferences-draft";
 import { usePreferences, useUpdatePreferences } from "@/api/hooks";
 import { NOTIFICATION_TYPES, type ChannelSet, type Preferences } from "@/api/types";
-
-/** Human labels for the API's snake_case type names. */
-const TYPE_LABELS: Record<string, string> = {
-  task_assigned: "Task assigned",
-  payment_received: "Payment received",
-  deadline_warning: "Deadline warning",
-  comment: "Comment",
-  system: "System",
-};
-
-/** Channel toggles, in the order they are rendered for every type. */
-const CHANNELS = [
-  { key: "inApp", label: "In-app" },
-  { key: "email", label: "Email" },
-  { key: "push", label: "Push" },
-] as const satisfies readonly { key: keyof ChannelSet; label: string }[];
 
 export default function PreferencesPage() {
   const current = usePreferences();
@@ -96,35 +82,18 @@ export default function PreferencesPage() {
   const quietHours = draft.quietHours;
 
   const setChannel = (type: string, key: keyof ChannelSet, value: boolean) => {
-    setDraft({
-      ...draft,
-      channels: {
-        ...draft.channels,
-        // Only overwrite the named channel: replacing the whole ChannelSet
-        // would reset the other two toggles to undefined.
-        [type]: { ...(draft.channels[type] ?? { inApp: false, email: false, push: false }), [key]: value },
-      },
-    });
+    setDraft({ ...draft, channels: setChannelIn(draft.channels, type, key, value) });
   };
 
   const toggleQuietHours = (enabled: boolean) => {
-    setDraft({
-      ...draft,
-      quietHours: enabled
-        ? // A sensible window rather than an empty one: null would render two
-          // blank time inputs and PATCH them straight back.
-          (quietHours ?? { start: "22:00", end: "07:00", timezone: guessTimezone() })
-        : null,
-    });
+    setDraft(withQuietHoursToggled(draft, enabled));
   };
 
-  const setQuietHours = (changes: Partial<NonNullable<Preferences["quietHours"]>>) => {
-    if (!quietHours) return;
-
-    setDraft({ ...draft, quietHours: { ...quietHours, ...changes } });
+  const setQuietHours = (changes: Partial<QuietHours>) => {
+    setDraft(withQuietHours(draft, changes));
   };
 
-  const isDirty = JSON.stringify(draft) !== JSON.stringify(current.data);
+  const isDirty = draftIsDirty(draft, current.data);
 
   const onSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -234,7 +203,7 @@ export default function PreferencesPage() {
 
             return (
               <div key={type} className="space-y-2 rounded-md border p-3">
-                <p className="text-sm font-medium">{TYPE_LABELS[type] ?? type}</p>
+                <p className="text-sm font-medium">{typeLabel(type)}</p>
 
                 <div className="flex flex-wrap gap-4">
                   {CHANNELS.map((channel) => (
@@ -276,19 +245,4 @@ export default function PreferencesPage() {
       </Card>
     </form>
   );
-}
-
-/**
- * The browser's own zone, used only to prefill a newly enabled window.
- *
- * `Intl` rather than a hardcoded zone, and guarded because a thrown RangeError
- * from a malformed zone must not take the page down - the field stays editable
- * either way.
- */
-function guessTimezone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  } catch {
-    return "UTC";
-  }
 }
