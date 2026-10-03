@@ -12,6 +12,8 @@ const { prismaMock, queueMock } = vi.hoisted(() => ({
     },
     notification: {
       create: vi.fn(),
+      findUnique: vi.fn(),
+      update: vi.fn(),
     },
   },
   queueMock: {
@@ -184,4 +186,28 @@ describe("notification API", () => {
     expect(prismaMock.notification.create).not.toHaveBeenCalled();
     expect(queueMock.enqueueNotification).not.toHaveBeenCalled();
   });
-})
+
+  it("does not allow a user to read another user's notification", async () => {
+    prismaMock.notification.findUnique.mockResolvedValue({
+      id: "n-other-user",
+      userId: "user-456",
+      type: "task_assigned",
+      title: "Private task",
+      body: "This belongs to another user",
+      link: "/tasks/99",
+      priority: "normal",
+      read: false,
+      readAt: null,
+      data: {},
+      createdAt: new Date("2026-09-21T08:14:00.000Z"),
+    });
+
+    const response = await request(app)
+      .patch("/api/v1/notifications/n-other-user/read")
+      .set("Authorization", "Bearer test-token");
+
+    expect(response.status).toBe(404);
+    expect(response.body.error.code).toBe("not_found");
+    expect(prismaMock.notification.update).not.toHaveBeenCalled();
+  });
+});
