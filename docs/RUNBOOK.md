@@ -27,6 +27,28 @@ queue is deep.
 
 ## Check in this order
 
+**0. Did it boot at all?**
+
+A configuration error is the cheapest thing to rule out, because unlike every
+other failure here it is not silent. `src/config/env.ts` validates once at
+startup and exits with the offending field named:
+
+```
+Invalid environment configuration:
+  JWT_SECRET: JWT_SECRET is still the value from .env.example, ...
+```
+
+`NODE_ENV=production` additionally refuses to start while `JWT_SECRET` or
+`SERVICE_KEY` is still the value from `backend/.env.example`. Those two are
+published in this repository - copied verbatim, the API serves normally and
+signs every session with a string anybody can read - so the check is what
+prevents that, not the comment beside it. Local development and the test suite
+are deliberately exempt, which is what makes the rule mean something in
+production.
+
+Read it as: if the API is not answering at all, paste the startup log before
+looking at queues.
+
 **1. Is the process up?**
 
 `GET /health` answers without touching Postgres or Redis. If it does not answer
