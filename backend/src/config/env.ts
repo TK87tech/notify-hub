@@ -31,6 +31,24 @@ const csv = (fallback: string[]) =>
     )
     .pipe(z.array(z.string().url()));
 
+/**
+ * The example secrets in backend/.env.example.
+ *
+ * They are in the repository on purpose: somebody setting the project up copies
+ * that file and runs the stack without generating anything first. Which also
+ * makes them the likeliest values to reach production by accident - copy the
+ * example, change the connection strings, forget the rest - and they are public,
+ * so a deployment still using either of them has no secret at all.
+ *
+ * Refusing them is the fix. A note in the deploy docs is not, because a
+ * documented step is a step somebody skips and this failure is silent: the API
+ * boots, serves traffic, and signs every token with a string from the repo.
+ */
+const EXAMPLE_SECRETS = [
+  ["JWT_SECRET", "dev-only-6c925f080b9865c7f7cc7056555ed86a"],
+  ["SERVICE_KEY", "dev-only-99ccd10ef8fd6991355be151"],
+] as const;
+
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(4000),
@@ -73,12 +91,40 @@ const schema = z.object({
   LOG_LEVEL: z
     .enum(["silent", "fatal", "error", "warn", "info", "debug", "trace"])
     .default("info"),
+}).superRefine((value, ctx) => {
+  // Production only. Local development and the test suite run on these values on
+  // purpose, and refusing them there would be noise that trains people to ignore
+  // the check.
+  if (value.NODE_ENV !== "production") return;
+
+  for (const [field, example] of EXAMPLE_SECRETS) {
+    if (value[field] !== example) continue;
+
+    ctx.addIssue({
+      code: "custom",
+      path: [field],
+      message:
+        `${field} is still the value from .env.example, which is published in this repository. Generate a real one - see backend/README.md`,
+    });
+  }
 });
 
 export type Env = z.infer<typeof schema>;
 
+/**
+ * Validates environment variables and returns the outcome.
+ *
+ * Split out from `load()` so the rules above can be tested without arranging a
+ * `process.exit`. A production-only guard is exactly the kind of check that
+ * quietly stops being enforced - one refactor away from a schema it never runs
+ * in - so it gets covered directly.
+ */
+export function parseEnv(raw: Record<string, string | undefined>) {
+  return schema.safeParse(raw);
+}
+
 function load(): Env {
-  const parsed = schema.safeParse(process.env);
+  const parsed = parseEnv(process.env);
 
   if (!parsed.success) {
     console.error("\nInvalid environment configuration:\n");
