@@ -11,7 +11,8 @@ npm run dev
 ```
 
 The API base URL and the VAPID public key come from `VITE_API_URL` and
-`VITE_VAPID_PUBLIC_KEY`; copy `.env.example` to `.env.local` to set them.
+`VITE_VAPID_PUBLIC_KEY`; `VITE_SOCKET_URL` is optional and defaults to the API
+host. Copy `.env.example` to `.env` to set them.
 
 | Script | What it does |
 | --- | --- |
