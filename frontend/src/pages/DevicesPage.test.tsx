@@ -17,6 +17,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+/**
+ * Raised for this file only.
+ *
+ * Every test here calls `vi.resetModules()` and re-imports the page and the
+ * harness, so React, React Query and the API layer are all re-evaluated from
+ * scratch each time. That costs over a second per test on its own, which sits
+ * right on top of the 5s default once the runner is also building fifteen jsdom
+ * environments. A loaded machine then fails a test that passes in isolation,
+ * which is worse than no test at all.
+ */
+vi.setConfig({ testTimeout: 20_000 });
+
 const VAPID = "BOq0-example-vapid-key-value_1234567";
 const ENDPOINT = "https://fcm.googleapis.com/fcm/send/abc123";
 
