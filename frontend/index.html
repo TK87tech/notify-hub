@@ -4,7 +4,40 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
+    <title>Notify Hub</title>
+
+    <script>
+      // Applies the saved theme before the first paint.
+      //
+      // `ThemeProvider` in src/main.tsx can only set `.dark` once React has
+      // mounted, which is after the browser has already painted the page at
+      // least once. Without this, someone who chose dark gets a flash of the
+      // light theme on every full page load.
+      //
+      // The keys and values here have to match next-themes' defaults - the
+      // localStorage key `theme`, holding `light`, `dark` or `system` - because
+      // this runs before the provider exists to be configured with anything else.
+      (function () {
+        try {
+          const stored = localStorage.getItem("theme");
+
+          const dark =
+            stored === "dark" ||
+            (stored !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+
+          document.documentElement.classList.toggle("dark", dark);
+
+          // The tokens are only half of it. `color-scheme` is what tells the
+          // browser to render its own widgets - scrollbars, and the
+          // `type="time"` inputs on the preferences page - dark as well. Left
+          // alone they stay light inside a dark form, which reads as a bug.
+          document.documentElement.style.colorScheme = dark ? "dark" : "light";
+        } catch {
+          // A browser with storage blocked should still get a working app, just
+          // without the remembered preference.
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
