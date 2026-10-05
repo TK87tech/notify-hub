@@ -1,6 +1,7 @@
 import { createContext, useContext } from "react";
 
 import type { User } from "@/api/types";
+import type { SignUpInput } from "@/api/endpoints";
 
 export interface AuthValue {
   user: User | null;
@@ -8,6 +9,8 @@ export interface AuthValue {
   isChecking: boolean;
   isSignedIn: boolean;
   signIn: (email: string, password: string) => Promise<void>;
+  /** Creates the account, then leaves the browser signed in as it. */
+  signUp: (input: SignUpInput) => Promise<void>;
   signOut: () => void;
 }
 

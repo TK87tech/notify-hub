@@ -19,6 +19,7 @@ import { RouteFallback } from "@/components/shared/RouteFallback";
  * to roughly half that.
  */
 const SignInPage = lazy(() => import("@/pages/SignInPage"));
+const SignUpPage = lazy(() => import("@/pages/SignUpPage"));
 const NotificationsPage = lazy(() => import("@/pages/NotificationsPage"));
 const PreferencesPage = lazy(() => import("@/pages/PreferencesPage"));
 const DevicesPage = lazy(() => import("@/pages/DevicesPage"));
@@ -35,19 +36,19 @@ function Page({ children }: { children: ReactNode }) {
 }
 
 /**
- * Keeps a signed-in user off the sign-in page.
+ * Keeps a signed-in user off the sign-in and sign-up pages.
  *
  * Without this, visiting /sign-in while already authenticated shows a working
  * form that silently does nothing useful - the form succeeds, the navigation
  * goes to a page the user is already on, and there is no explanation.
  */
-function SignInRoute() {
+function GuestRoute({ children }: { children: ReactNode }) {
   const { isSignedIn, isChecking } = useAuth();
 
   if (isChecking) return null;
   if (isSignedIn) return <Navigate to="/" replace />;
 
-  return <Page><SignInPage /></Page>;
+  return <Page>{children}</Page>;
 }
 
 export default function App() {
@@ -59,7 +60,8 @@ export default function App() {
               and inside BrowserRouter so a toast link can navigate. */}
           <RealtimeProvider>
             <Routes>
-              <Route path="/sign-in" element={<SignInRoute />} />
+              <Route path="/sign-in" element={<GuestRoute><SignInPage /></GuestRoute>} />
+              <Route path="/sign-up" element={<GuestRoute><SignUpPage /></GuestRoute>} />
 
               {/* Outlet rather than children: AppShell is a template component
                   with a fixed `children` prop, and the router fills it here so

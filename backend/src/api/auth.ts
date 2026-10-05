@@ -22,7 +22,7 @@ import { randomBytes } from "node:crypto";
 
 import { prisma } from "../lib/prisma.js";
 import { logger } from "../lib/logger.js";
-import { badRequest, unauthorized, tooManyRequests } from "../lib/errors.js";
+import { badRequest, conflict, isUniqueViolation, unauthorized, tooManyRequests } from "../lib/errors.js";
 import { hashPassword, needsRehash, verifyPassword } from "../lib/password.js";
 import { signToken, requireUser } from "../middleware/auth.js";
 
@@ -163,6 +163,85 @@ authRouter.post("/sign-in", async (req, res) => {
   logger.info({ userId: user.id }, "user signed in");
 
   res.json({
+    token: signToken({ sub: user.id, email: user.email }, TOKEN_TTL),
+    user: { id: user.id, email: user.email, name: user.name ?? null },
+  });
+});
+
+const signUpSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .max(100, "Keep your name under 100 characters")
+    .optional()
+    .transform((value) => value || null),
+  email: z.string().trim().email("Enter a valid email address").max(254),
+  password: z
+    .string()
+    .min(8, "Use at least 8 characters")
+    .max(200, "Use at most 200 characters"),
+});
+
+/**
+ * Self sign-up. Creates the account and signs it in, answering with the same
+ * Session shape as /sign-in so the browser treats both the same way.
+ *
+ * No preference row is created: every reader falls back to the agreed
+ * defaults (docs/BELL-DECISIONS.md) when there is none, so a new user gets
+ * exactly what a seeded one does.
+ *
+ * Unlike sign-in, a taken email answers 409 rather than a vague failure. A
+ * sign-up form that cannot say "that address already has an account" is
+ * unusable, so that much enumeration is accepted - and every attempt from an
+ * address counts against the same limiter, which keeps it to a trickle.
+ */
+authRouter.post("/sign-up", async (req, res) => {
+  const parsed = signUpSchema.safeParse(req.body);
+
+  if (!parsed.success) {
+    throw badRequest(
+      "Check the highlighted fields",
+      parsed.error.issues.map((issue) => ({
+        field: issue.path.join("."),
+        message: issue.message,
+      })),
+    );
+  }
+
+  const body = parsed.data;
+  const key = `sign-up:${req.ip ?? "unknown"}`;
+  const now = Date.now();
+
+  if (isRateLimited(key, now)) {
+    logger.warn({ ip: req.ip }, "sign-up rate limited");
+    throw tooManyRequests("Too many sign-up attempts. Wait 15 minutes and try again.");
+  }
+
+  // Counted on every attempt, successful or not: the limiter here is about
+  // volume from one address, not about wrong passwords.
+  recordFailure(key, now);
+
+  let user;
+
+  try {
+    user = await prisma.user.create({
+      data: {
+        email: body.email.toLowerCase(),
+        name: body.name,
+        passwordHash: await hashPassword(body.password),
+      },
+      select: { id: true, email: true, name: true },
+    });
+  } catch (err) {
+    if (isUniqueViolation(err)) {
+      throw conflict("An account with that email already exists. Sign in instead.");
+    }
+    throw err;
+  }
+
+  logger.info({ userId: user.id }, "user signed up");
+
+  res.status(201).json({
     token: signToken({ sub: user.id, email: user.email }, TOKEN_TTL),
     user: { id: user.id, email: user.email, name: user.name ?? null },
   });

@@ -69,6 +69,73 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/sign-up": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create an account and sign it in
+         * @description Self sign-up. Answers with the same Session as sign-in. A new account starts on the default channel preferences. Unlike sign-in, a taken email answers 409, because a sign-up form has to be able to say so. Attempts are rate limited per address.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @example TK */
+                        name?: string;
+                        /**
+                         * Format: email
+                         * @example tk@notifyhub.test
+                         */
+                        email: string;
+                        /**
+                         * Format: password
+                         * @example correct-horse-battery-staple
+                         */
+                        password: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Account created and signed in */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Session"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                /** @description An account with that email already exists */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                429: components["responses"]["RateLimited"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/session": {
         parameters: {
             query?: never;
