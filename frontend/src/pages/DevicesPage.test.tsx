@@ -30,7 +30,12 @@ import userEvent from "@testing-library/user-event";
 vi.setConfig({ testTimeout: 20_000 });
 
 const VAPID = "BOq0-example-vapid-key-value_1234567";
-const ENDPOINT = "https://fcm.googleapis.com/fcm/send/abc123";
+const FCM_TOKEN = "fcm-registration-token-abc123";
+
+// The Firebase SDK cannot run in jsdom; the page's contract is only that it
+// asks for an FCM token and registers that, never the raw subscription.
+const fcm = vi.hoisted(() => ({ getFcmToken: vi.fn() }));
+vi.mock("@/push/fcm-token", () => fcm);
 
 /** Pinned so `detectPlatform()` is deterministic - jsdom otherwise reports the
  * host, which made this pass on Windows and fail on the Linux runner. */
@@ -64,18 +69,19 @@ async function load(vapid: string): Promise<Loaded> {
  */
 function stubBrowser(current: NotificationPermission, outcome: NotificationPermission = current) {
   const requestPermission = vi.fn().mockResolvedValue(outcome);
-  const subscribe = vi.fn().mockResolvedValue({ endpoint: ENDPOINT });
+  const subscribe = fcm.getFcmToken.mockReset().mockResolvedValue(FCM_TOKEN);
+  const registration = {};
 
   vi.stubGlobal("Notification", { permission: current, requestPermission });
 
   Object.defineProperty(navigator, "serviceWorker", {
     configurable: true,
-    value: { ready: Promise.resolve({ pushManager: { subscribe } }) },
+    value: { ready: Promise.resolve(registration) },
   });
 
   Object.defineProperty(navigator, "userAgent", { configurable: true, value: WINDOWS_UA });
 
-  return { requestPermission, subscribe };
+  return { requestPermission, subscribe, registration };
 }
 
 beforeEach(() => {
@@ -130,7 +136,7 @@ describe("DevicesPage", () => {
     const user = userEvent.setup();
     const { Page, render } = await load(VAPID);
     // Not yet asked, then granted when prompted.
-    const { requestPermission, subscribe } = stubBrowser("default", "granted");
+    const { requestPermission, subscribe, registration } = stubBrowser("default", "granted");
 
     const { fetchMock } = render(<Page />, {
       routes: { "/devices": () => Promise.resolve({ ok: true, status: 201, json: async () => ({}) } as Response) },
@@ -141,19 +147,15 @@ describe("DevicesPage", () => {
     await waitFor(() => expect(requestPermission).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getByText(/push is on for this device/i)).toBeInTheDocument());
 
-    expect(subscribe).toHaveBeenCalledWith({
-      userVisibleOnly: true,
-      // Raw bytes, not base64: the API expects a Uint8Array here.
-      applicationServerKey: expect.any(Uint8Array),
-    });
+    expect(subscribe).toHaveBeenCalledWith(VAPID, registration);
 
     const calls = fetchMock.mock.calls.filter(([url]) => String(url).includes("/devices"));
 
     expect(calls).toHaveLength(1);
     expect(calls[0][1].method).toBe("POST");
-    // `windows` follows from the pinned UA, which is what lets this assertion hold
-    // on the Linux runner as well as locally.
-    expect(JSON.parse(String(calls[0][1].body))).toEqual({ token: ENDPOINT, platform: "windows" });
+    // The FCM token, and "web" whatever the OS: the contract allows only
+    // web, android and ios, and the pinned Windows UA proves it is not sniffed.
+    expect(JSON.parse(String(calls[0][1].body))).toEqual({ token: FCM_TOKEN, platform: "web" });
   });
 
   it("does not claim success when permission is refused", async () => {
