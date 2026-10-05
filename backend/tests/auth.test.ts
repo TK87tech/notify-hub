@@ -22,6 +22,7 @@ const scryptAsync = promisify(scryptCallback) as (
 const mocks = vi.hoisted(() => ({
   userFindUnique: vi.fn(),
   userUpdate: vi.fn(),
+  userCreate: vi.fn(),
 }));
 
 vi.mock("../src/lib/prisma.js", () => ({
@@ -29,6 +30,7 @@ vi.mock("../src/lib/prisma.js", () => ({
     user: {
       findUnique: mocks.userFindUnique,
       update: mocks.userUpdate,
+      create: mocks.userCreate,
     },
   },
 }));
@@ -54,6 +56,58 @@ beforeEach(async () => {
   mocks.userUpdate.mockResolvedValue({});
 
   app = createApp();
+});
+
+describe("POST /api/v1/auth/sign-up", () => {
+  const body = { name: "Ada", email: "Ada@Example.com", password: "long-enough-pw" };
+
+  it("creates the account, stores a hash, and signs it in", async () => {
+    mocks.userCreate.mockImplementation(async ({ data }) => ({ id: "user-new", email: data.email, name: data.name }));
+
+    const res = await request(app).post("/api/v1/auth/sign-up").send(body).expect(201);
+
+    expect(res.body.user).toEqual({ id: "user-new", email: "ada@example.com", name: "Ada" });
+    expect(typeof res.body.token).toBe("string");
+
+    const { data } = mocks.userCreate.mock.calls[0][0];
+    expect(data.email).toBe("ada@example.com");
+    expect(data.passwordHash).not.toContain(body.password);
+    expect(await verifyPassword(body.password, data.passwordHash)).toBe(true);
+
+    // The token works on a protected route straight away.
+    mocks.userFindUnique.mockResolvedValue({ id: "user-new", email: "ada@example.com", name: "Ada" });
+    await request(app).get("/api/v1/auth/session").set("authorization", `Bearer ${res.body.token}`).expect(200);
+  });
+
+  it("answers 409 for an email that already has an account", async () => {
+    mocks.userCreate.mockRejectedValue(Object.assign(new Error("unique"), { code: "P2002" }));
+
+    const res = await request(app).post("/api/v1/auth/sign-up").send(body).expect(409);
+
+    expect(res.body.error.message).toMatch(/already exists/);
+  });
+
+  it("rejects a short password before touching the database", async () => {
+    const res = await request(app)
+      .post("/api/v1/auth/sign-up")
+      .send({ ...body, password: "short" })
+      .expect(400);
+
+    expect(res.body.error.details).toEqual([
+      expect.objectContaining({ field: "password", message: "Use at least 8 characters" }),
+    ]);
+    expect(mocks.userCreate).not.toHaveBeenCalled();
+  });
+
+  it("rate limits repeated sign-ups from one address", async () => {
+    mocks.userCreate.mockRejectedValue(Object.assign(new Error("unique"), { code: "P2002" }));
+
+    for (let i = 0; i < 10; i += 1) {
+      await request(app).post("/api/v1/auth/sign-up").send(body).expect(409);
+    }
+
+    await request(app).post("/api/v1/auth/sign-up").send(body).expect(429);
+  });
 });
 
 describe("POST /api/v1/auth/sign-in", () => {

@@ -57,6 +57,41 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
         '429': { $ref: '#/components/responses/RateLimited' }
 
+  /auth/sign-up:
+    post:
+      tags: [Auth]
+      summary: Create an account and sign it in
+      description: >
+        Self sign-up. Answers with the same Session as sign-in. A new account
+        starts on the default channel preferences. Unlike sign-in, a taken
+        email answers 409, because a sign-up form has to be able to say so.
+        Attempts are rate limited per address.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                name: { type: string, maxLength: 100, example: "TK" }
+                email: { type: string, format: email, example: "tk@notifyhub.test" }
+                password: { type: string, format: password, minLength: 8, example: "correct-horse-battery-staple" }
+      responses:
+        '201':
+          description: Account created and signed in
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409':
+          description: An account with that email already exists
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
   /auth/session:
     get:
       tags: [Auth]

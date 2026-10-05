@@ -40,6 +40,20 @@ export async function signIn(email: string, password: string): Promise<Session> 
   });
 }
 
+export interface SignUpInput {
+  name?: string;
+  email: string;
+  password: string;
+}
+
+export async function signUp(input: SignUpInput): Promise<Session> {
+  return request<Session>("/auth/sign-up", {
+    method: "POST",
+    body: input,
+    anonymous: true,
+  });
+}
+
 export async function fetchSession(): Promise<User> {
   // The contract wraps it: { user }. Returning the envelope as a User blanks
   // the header after every reload.

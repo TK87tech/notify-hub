@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { z } from "zod";
 
@@ -131,7 +131,14 @@ export default function SignInPage() {
           </form>
         </CardContent>
 
-        <CardFooter>
+        <CardFooter className="flex-col items-start gap-3">
+          <p className="text-sm">
+            New here?{" "}
+            <Link to="/sign-up" className="font-medium underline underline-offset-4">
+              Create an account
+            </Link>
+          </p>
+
           <FieldDescription className="text-xs">
             NotifyHub sends email, push and in-app notifications through a queue. Sign-in only
             controls what this browser can see.
