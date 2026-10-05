@@ -86,6 +86,11 @@ const schema = z.object({
 
   SENTRY_DSN: z.string().default(""),
 
+  // Render free tier only: the worker's public /health URL. The API requests
+  // it whenever it queues a job, so a worker put to sleep for lack of HTTP
+  // traffic wakes up. Empty disables it. See src/lib/wake-worker.ts.
+  WORKER_WAKE_URL: z.union([z.literal(""), z.string().url()]).default(""),
+
   // "silent" is pino's own level, kept here so LOG_LEVEL=silent is a valid
   // thing to put in a .env when somebody wants a completely quiet run.
   LOG_LEVEL: z

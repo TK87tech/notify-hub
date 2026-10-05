@@ -1,0 +1,82 @@
+# Render Blueprint: the API and the worker, both on the free plan.
+#
+# Render -> New -> Blueprint -> pick this repo. Values marked `sync: false`
+# are asked for once, in the dashboard, and never live in git.
+#
+# Why the worker is a *web* service: Render's free plan has no background
+# workers. A free web service sleeps after 15 minutes without HTTP traffic, so
+# the API knocks on the worker's /health whenever it queues a job
+# (WORKER_WAKE_URL, src/lib/wake-worker.ts). See "Deployment" in README.md for
+# what that means at demo time.
+
+envVarGroups:
+  # Everything both processes read. One place, so the API and the worker can
+  # never disagree about a secret or a provider key.
+  - name: notifyhub-shared
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22.12.0"
+      - key: DATABASE_URL # Neon connection string, with ?sslmode=require
+        sync: false
+      - key: REDIS_URL # Upstash, the rediss:// (TLS) URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: SERVICE_KEY
+        generateValue: true
+      - key: APP_URL # the Vercel URL, e.g. https://notify-hub.vercel.app
+        sync: false
+      - key: BREVO_API_KEY
+        sync: false
+      - key: EMAIL_FROM # must be a sender verified in Brevo
+        sync: false
+      - key: FCM_PROJECT_ID
+        sync: false
+      - key: FCM_CLIENT_EMAIL
+        sync: false
+      - key: FCM_PRIVATE_KEY # paste as-is; literal \n sequences are handled
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+
+services:
+  - type: web
+    name: notifyhub-api
+    runtime: node
+    plan: free
+    rootDir: backend
+    # --include=dev because NODE_ENV=production would otherwise skip tsc and
+    # the prisma CLI, and both are needed to build and to migrate.
+    buildCommand: npm ci --include=dev && npx prisma generate && npm run build
+    # Migrations run on start, not in a pre-deploy step: pre-deploy commands
+    # are paid-plan only. `migrate deploy` only applies pending migrations, so
+    # an ordinary restart costs a second.
+    startCommand: npx prisma migrate deploy && node dist/src/index.js
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - fromGroup: notifyhub-shared
+      # Extra browser origins, comma-separated: Vercel preview URLs, a custom
+      # domain. APP_URL is always allowed and need not be repeated here.
+      - key: CORS_ORIGINS
+        sync: false
+      # https://notifyhub-worker.onrender.com/health once the worker exists.
+      - key: WORKER_WAKE_URL
+        sync: false
+
+  - type: web
+    name: notifyhub-worker
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm ci --include=dev && npx prisma generate && npm run build
+    # WORKER_PORT is what makes the worker open its health endpoint. It is set
+    # here, from Render's $PORT, rather than in the env group, so a local
+    # `npm run worker` never binds a port.
+    startCommand: WORKER_PORT=$PORT npm run start:worker
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - fromGroup: notifyhub-shared
