@@ -12,6 +12,7 @@
  * it directly instead of standing up a broker.
  */
 
+import { createServer } from "node:http";
 import { Worker } from "bullmq";
 
 import { logger } from "./lib/logger.js";
@@ -78,6 +79,23 @@ const workers = [createWorker(notificationQueueName), createWorker(emailQueueNam
 
 Sentry.init();
 
+/**
+ * Render's free tier has no background workers, so the worker is deployed as
+ * a web service, and a web service must answer HTTP on $PORT or the deploy
+ * fails its health check. WORKER_PORT is set only by that start command
+ * (render.yaml); locally the worker binds nothing, so it cannot collide with
+ * the API on 4000. The API's wake-up requests (src/lib/wake-worker.ts) land here.
+ */
+const healthServer = process.env.WORKER_PORT
+  ? createServer((req, res) => {
+      const ok = req.url === "/health" && workers.every((worker) => worker.isRunning());
+      res.writeHead(ok ? 200 : 503, { "content-type": "application/json" });
+      res.end(JSON.stringify({ status: ok ? "ok" : "not running", role: "worker" }));
+    }).listen(Number(process.env.WORKER_PORT), () => {
+      logger.info({ port: process.env.WORKER_PORT }, "worker health endpoint listening");
+    })
+  : null;
+
 logger.info(
   {
     queues: [notificationQueueName, emailQueueName, deadLetterQueueName],
@@ -109,6 +127,7 @@ async function shutdown(signal: string): Promise<void> {
   forced.unref();
 
   try {
+    healthServer?.close();
     await Promise.all(workers.map((worker) => worker.close()));
     await closeRedis();
     await prisma.$disconnect();

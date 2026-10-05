@@ -22,6 +22,7 @@ import { Redis } from "ioredis";
 
 import { env } from "../config/env.js";
 import { logger } from "./logger.js";
+import { wakeWorker } from "./wake-worker.js";
 import type { ChannelName } from "../channels/types.js";
 
 export const notificationQueueName = "notifications";
@@ -175,6 +176,8 @@ export async function enqueueNotification(
     data,
     jobId ? { ...options, jobId } : options,
   );
+
+  wakeWorker();
 
   return job.id ?? jobId ?? jobIdFor(data);
 }
