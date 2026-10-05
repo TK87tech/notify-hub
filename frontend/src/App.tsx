@@ -53,7 +53,7 @@ function SignInRoute() {
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
+      <BrowserRouter basename={import.meta.env.BASE_URL}>
         <AuthProvider>
           {/* Inside AuthProvider so the socket only connects while signed in,
               and inside BrowserRouter so a toast link can navigate. */}
