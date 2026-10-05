@@ -13,8 +13,9 @@
  */
 
 /** Root scope, because the app is served from the root of its domain. */
-const SW_URL = "/sw.js";
-const SW_SCOPE = "/";
+// Follow Vite's base, so a build served from a subpath registers its own worker.
+const SW_URL = `${import.meta.env.BASE_URL}sw.js`;
+const SW_SCOPE = import.meta.env.BASE_URL;
 
 export type RegisterOutcome =
   /** A worker was registered and is installing. */
