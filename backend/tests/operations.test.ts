@@ -58,6 +58,7 @@ vi.mock("../src/lib/queue.js", () => {
     emailQueue: queue,
     deadLetterQueue: queue,
     enqueueNotification: vi.fn().mockResolvedValue("job-1"),
+    jobIdFor: (d: { notificationId: string; channel: string }) => `${d.notificationId}-${d.channel}`,
     MAX_ATTEMPTS: 5,
   };
 });
@@ -187,7 +188,8 @@ describe("GET /internal/queue-stats", () => {
     mocks.queue.getJobCounts
       .mockResolvedValueOnce(healthyCounts())
       .mockResolvedValueOnce({ ...healthyCounts(), waiting: 7, delayed: 3 })
-      .mockResolvedValueOnce({ ...healthyCounts(), failed: 4 });
+      // Nothing consumes the DLQ, so real entries sit in `waiting`.
+      .mockResolvedValueOnce({ ...healthyCounts(), waiting: 4 });
 
     const res = await request(app).get("/internal/queue-stats").expect(200);
 
@@ -454,6 +456,13 @@ describe("POST /internal/dead-letters/requeue", () => {
     const res = await request(app).post("/internal/dead-letters/requeue?id=dlq-1").expect(200);
 
     expect(res.body).toMatchObject({ status: "requeued", notificationId: "n1", channel: "email" });
+
+    // A new id, or BullMQ ignores the add while the original job is retained;
+    // and a fresh attempt count, or the requeue gets a single try.
+    const { enqueueNotification } = await import("../src/lib/queue.js");
+    const [jobData, , jobId] = vi.mocked(enqueueNotification).mock.calls.at(-1)!;
+    expect(jobData.attempt).toBe(1);
+    expect(jobId).toMatch(/^n1-email@requeue-/);
 
     // Removing the entry is what stops somebody re-running this every ten
     // minutes out of a habit formed the first time it worked.

@@ -41,7 +41,11 @@ export async function signIn(email: string, password: string): Promise<Session> 
 }
 
 export async function fetchSession(): Promise<User> {
-  return request<User>("/auth/session");
+  // The contract wraps it: { user }. Returning the envelope as a User blanks
+  // the header after every reload.
+  const { user } = await request<{ user: User }>("/auth/session");
+
+  return user;
 }
 
 /* -- notifications ----------------------------------------------------- */

@@ -211,7 +211,25 @@ function setUnread(queryClient: ReturnType<typeof useQueryClient>, unreadCount: 
 
 /* -- toasts ------------------------------------------------------------ */
 
+/**
+ * The link comes from the producer. Only http(s) - absolute or relative - is
+ * followed: assigning a `javascript:` URL to location would run it.
+ */
+function safeHref(link: string | null | undefined): string | null {
+  if (!link) return null;
+
+  try {
+    const url = new URL(link, window.location.origin);
+
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
 function announce(notification: Notification): void {
+  const href = safeHref(notification.link);
+
   // Urgent means urgent: no auto-dismiss, so someone looking at something else
   // cannot miss it by glancing away for five seconds.
   const duration = notification.priority === "urgent" ? Number.POSITIVE_INFINITY : TOAST_MS;
@@ -222,11 +240,11 @@ function announce(notification: Notification): void {
     // Keyed by id, so a redelivery after a reconnect updates the existing toast
     // instead of stacking a duplicate next to it.
     id: notification.id,
-    action: notification.link
+    action: href
       ? {
           label: "View",
           onClick: () => {
-            window.location.assign(notification.link as string);
+            window.location.assign(href);
           },
         }
       : undefined,

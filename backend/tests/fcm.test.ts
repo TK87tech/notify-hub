@@ -185,14 +185,13 @@ describe("sendPushNotification", () => {
 });
 
 describe("push channel", () => {
-  it("fails permanently, and says why, when Firebase is not configured", async () => {
+  it("skips, and says why, when Firebase is not configured", async () => {
     mocks.env.FCM_PROJECT_ID = "";
 
     const result = await pushChannel.send(context);
 
-    expect(result.ok).toBe(false);
-    expect(result.ok === false && result.retryable).toBe(false);
-    expect(result.ok === false && result.error).toMatch(/FCM_PROJECT_ID/);
+    expect(result).toMatchObject({ ok: true, skipped: true });
+    expect(result.ok && result.detail).toMatch(/FCM_PROJECT_ID/);
     expect(mocks.deviceFindMany).not.toHaveBeenCalled();
   });
 

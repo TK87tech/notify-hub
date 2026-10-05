@@ -159,17 +159,24 @@ export function queueForChannel(channel: ChannelName): Queue<NotificationJobData
   return channel === "email" ? emailQueue() : notificationQueue();
 }
 
+/**
+ * `jobId` overrides the idempotent default. Only a deliberate re-send (a
+ * dead-letter requeue) passes one: under the default id BullMQ would silently
+ * ignore the add while the original job is still retained as completed/failed.
+ */
 export async function enqueueNotification(
   data: NotificationJobData,
   delay = 0,
+  jobId?: string,
 ): Promise<string> {
+  const options = jobOptions(data, delay);
   const job = await queueForChannel(data.channel).add(
     "deliver-notification",
     data,
-    jobOptions(data, delay),
+    jobId ? { ...options, jobId } : options,
   );
 
-  return job.id ?? `${jobIdFor(data)}`;
+  return job.id ?? jobId ?? jobIdFor(data);
 }
 
 /**
@@ -210,9 +217,9 @@ export async function parkJob(
     {
       ...jobOptions(data, Math.max(0, until.getTime() - Date.now())),
       jobId: parkedId,
-      // A parked job is not a retry, so it should not count against MAX_ATTEMPTS
-      // the way a delivery failure does. Keeping the original allowance means a
-      // job parked twice still has a full set of attempts when it finally runs.
+      // Parking is not a retry, so it spends no attempt - but it does not refund
+      // the ones already used either. The job keeps what it had left, and
+      // processJob counts from data.attempt so it still knows its last try.
       attempts: Math.max(1, MAX_ATTEMPTS - (data.attempt - 1)),
     },
   );

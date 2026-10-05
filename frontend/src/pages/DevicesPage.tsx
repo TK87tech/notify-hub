@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { useRegisterDevice } from "@/api/hooks";
+import { getFcmToken } from "@/push/fcm-token";
 
 type Support = "unsupported" | "supported";
 
@@ -99,15 +100,11 @@ export default function DevicesPage() {
 
       const registration = await navigator.serviceWorker.ready;
 
-      const subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_KEY),
-      });
+      const token = await getFcmToken(VAPID_KEY, registration);
 
-      await register.mutateAsync({
-        token: subscription.endpoint,
-        platform: detectPlatform(),
-      });
+      // Always "web": this is a browser's FCM token whatever OS it runs on, and
+      // the contract only accepts web, android and ios.
+      await register.mutateAsync({ token, platform: "web" });
 
       setEnabled(true);
       toast.success("Push notifications enabled");
@@ -193,37 +190,4 @@ export default function DevicesPage() {
       </Card>
     </section>
   );
-}
-
-/**
- * `applicationServerKey` needs raw bytes, not base64.
- *
- * The explicit `ArrayBuffer` matters: TypeScript 6 will not accept a
- * `Uint8Array<ArrayBufferLike>` here, and a view over a shared buffer is a
- * type error rather than a runtime one.
- */
-function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
-  const padding = "=".repeat((4 - (base64.length % 4)) % 4);
-  const normalised = (base64 + padding).replace(/-/g, "+").replace(/_/g, "/");
-
-  const raw = atob(normalised);
-  const buffer = new ArrayBuffer(raw.length);
-  const output = new Uint8Array(buffer);
-
-  for (let i = 0; i < raw.length; i += 1) output[i] = raw.charCodeAt(i);
-
-  return output;
-}
-
-/** Reported to the API so delivery can pick the right FCM options. */
-function detectPlatform(): string {
-  const ua = navigator.userAgent;
-
-  if (/iPhone|iPad|iPod/i.test(ua)) return "ios";
-  if (/Android/i.test(ua)) return "android";
-  if (/Mac/i.test(ua)) return "macos";
-  if (/Windows/i.test(ua)) return "windows";
-  if (/Linux/i.test(ua)) return "linux";
-
-  return "web";
 }

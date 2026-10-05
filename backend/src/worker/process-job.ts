@@ -150,7 +150,9 @@ export async function deadLetter(
 
 export async function processJob(job: ProcessableJob): Promise<{ status: string }> {
   const { notificationId, userId, channel, priority } = job.data;
-  const attempt = job.attemptsMade + 1;
+  // data.attempt is 1 for a fresh job and carries the try a parked job had
+  // reached, because a re-added job restarts attemptsMade at 0.
+  const attempt = (job.data.attempt ?? 1) + job.attemptsMade;
   const isLastAttempt = attempt >= MAX_ATTEMPTS;
 
   logger.info(

@@ -22,19 +22,26 @@ import {
   sendPushNotification,
 } from "./fcm.js";
 
+const PUSH_NOT_CONFIGURED =
+  "Push is not configured: FCM_PROJECT_ID, FCM_CLIENT_EMAIL and FCM_PRIVATE_KEY are missing";
+
+let warnedNotConfigured = false;
+
 export const pushChannel: Channel = {
   name: "push",
 
   async send(ctx: ChannelContext) {
     if (!isPushConfigured()) {
-      // Configuration, not the device's fault. Permanent, because retrying
-      // with the same environment variables cannot work, and it should show
-      // up in the dead-letter queue where it is visible rather than being
-      // swallowed as "no devices".
-      return failure(
-        "Push is not configured: FCM_PROJECT_ID, FCM_CLIENT_EMAIL and FCM_PRIVATE_KEY are missing",
-        false,
-      );
+      // A deployment without Firebase is a choice, not a failed delivery.
+      // Dead-lettering here filled the DLQ and Sentry with one entry per
+      // push-enabled notification. Skipped, with the reason on the
+      // delivery_attempts row, and warned once per process so it is not silent.
+      if (!warnedNotConfigured) {
+        warnedNotConfigured = true;
+        logger.warn("push is not configured (FCM_* unset); push deliveries will be skipped");
+      }
+
+      return success({ skipped: true, detail: PUSH_NOT_CONFIGURED });
     }
 
     const devices = await prisma.device.findMany({

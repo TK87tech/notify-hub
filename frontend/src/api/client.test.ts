@@ -9,6 +9,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { ApiError, request, REQUEST_TIMEOUT_MS } from "./client";
 import { writeToken } from "./token";
+import { fetchSession } from "./endpoints";
 
 /** A minimal Response stand-in; jsdom has no fetch. */
 function jsonResponse(body: unknown, status = 200): Response {
@@ -155,5 +156,13 @@ describe("request", () => {
     // VITE_API_URL supplies the /api/v1 prefix; the endpoint path does not repeat it.
 // Getting this wrong yields /api/v1/api/v1/... which 404s only in production.
 expect(fetchMock.mock.calls[0][0]).toBe("http://api.test/api/v1/notifications/unread-count");
+  });
+});
+describe("fetchSession", () => {
+  it("unwraps the contract's { user } envelope", async () => {
+    const user = { id: "u1", email: "a@b.test", name: null };
+    fetchMock.mockResolvedValue(jsonResponse({ user }));
+
+    await expect(fetchSession()).resolves.toEqual(user);
   });
 });
