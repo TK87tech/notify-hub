@@ -9,6 +9,7 @@ const { prismaMock, queueMock } = vi.hoisted(() => ({
       idempotencyKey: {
         findUnique: vi.fn(),
         create: vi.fn(),
+        deleteMany: vi.fn(),
       },
       notification: {
         create: vi.fn(),
@@ -258,6 +259,24 @@ describe("notification API", () => {
 
     expect(prismaMock.notification.create).not.toHaveBeenCalled();
     expect(queueMock.enqueueNotification).not.toHaveBeenCalled();
+  });
+
+  it("rolls back the notification and key when queueing fails, so a retry is not a duplicate", async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ id: "user-1", preference: null });
+    prismaMock.idempotencyKey.findUnique.mockResolvedValue(null);
+    prismaMock.notification.create.mockResolvedValue({ id: "n-new" });
+    prismaMock.idempotencyKey.create.mockResolvedValue({});
+    prismaMock.notification.delete.mockResolvedValue({});
+    prismaMock.idempotencyKey.deleteMany.mockResolvedValue({ count: 1 });
+    queueMock.enqueueNotification.mockRejectedValue(new Error("redis down"));
+
+    const response = await request(app)
+      .post("/internal/notifications")
+      .send({ userId: "user-1", type: "comment", title: "Hello", idempotencyKey: "k-1" });
+
+    expect(response.status).toBe(500);
+    expect(prismaMock.notification.delete).toHaveBeenCalledWith({ where: { id: "n-new" } });
+    expect(prismaMock.idempotencyKey.deleteMany).toHaveBeenCalledWith({ where: { key: "k-1" } });
   });
 
   it("does not allow a user to read another user's notification", async () => {

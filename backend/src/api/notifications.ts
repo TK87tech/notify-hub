@@ -409,18 +409,34 @@ internalNotificationRouter.post("/notifications", async (req, res) => {
 
   const deliverAt = payload.deliverAt ? new Date(payload.deliverAt) : undefined;
 
-  const outcome = await deliverNow(
-    {
-      notificationId: notification.id,
-      userId: user.id,
-      channels,
-      priority: payload.priority,
-    },
-    {
-      ...(deliverAt ? { deliverAt } : {}),
-      quietHours: quietHoursOf(user.preference),
-    },
-  );
+  let outcome;
+
+  try {
+    outcome = await deliverNow(
+      {
+        notificationId: notification.id,
+        userId: user.id,
+        channels,
+        priority: payload.priority,
+      },
+      {
+        ...(deliverAt ? { deliverAt } : {}),
+        quietHours: quietHoursOf(user.preference),
+      },
+    );
+  } catch (err) {
+    // Queueing failed (Redis down). Undo the insert and the key, so the
+    // producer's retry is a fresh attempt instead of a "duplicate" of a
+    // notification that was never queued. Any channel job that did get queued
+    // finds no row and dead-letters harmlessly.
+    await prisma.notification.delete({ where: { id: notification.id } }).catch(() => undefined);
+    if (payload.idempotencyKey) {
+      await prisma.idempotencyKey
+        .deleteMany({ where: { key: payload.idempotencyKey } })
+        .catch(() => undefined);
+    }
+    throw err;
+  }
 
   res.status(202).json({
     jobId: notification.id,

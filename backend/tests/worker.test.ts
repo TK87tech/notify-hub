@@ -362,4 +362,16 @@ describe("attempt accounting", () => {
       expect(recorded()[0].attempt).toBe(expected);
     }
   });
+  it("knows a parked job's last try, though BullMQ restarted its counter", async () => {
+    // Parked on try 3, re-added with 3 attempts left: its third run is try 5.
+    mocks.db.notification.findUnique.mockResolvedValue(storedNotification);
+    mocks.db.user.findUnique.mockResolvedValue({ id: "user-1", email: "a@b.test", name: null });
+    mocks.db.deliveryAttempt.findFirst.mockResolvedValue(null);
+    mocks.sendOnChannel.mockResolvedValue({ ok: false, error: "Brevo 503", retryable: true });
+
+    const result = await processJob({ id: "j", attemptsMade: 2, data: { ...data, attempt: 3 } });
+
+    expect(result.status).toBe("dead-lettered");
+    expect(recorded()[0]).toMatchObject({ status: DeliveryStatus.dead, attempt: MAX_ATTEMPTS });
+  });
 });

@@ -231,6 +231,10 @@ export async function buildQueueStats() {
       emailUsageToday(),
     ]);
 
+  // Nothing consumes the dead-letter queue, so its entries sit in `waiting`.
+  // Count every live state rather than assume which one they land in.
+  const dlqSize = dlq.waiting + dlq.active + dlq.delayed + dlq.failed;
+
   const depth = notifications.waiting + notifications.delayed + email.waiting + email.delayed;
   const failureRate = deliveries.failureRate;
 
@@ -238,9 +242,9 @@ export async function buildQueueStats() {
 
   if (!redisUp) {
     status = "failing";
-  } else if (dlq.failed >= DLQ_FAIL_THRESHOLD || failureRate > 0.25) {
+  } else if (dlqSize >= DLQ_FAIL_THRESHOLD || failureRate > 0.25) {
     status = "failing";
-  } else if (dlq.failed >= DLQ_WARN_THRESHOLD || failureRate > 0.1 || depth > 500) {
+  } else if (dlqSize >= DLQ_WARN_THRESHOLD || failureRate > 0.1 || depth > 500) {
     status = "degraded";
   }
 
@@ -257,7 +261,7 @@ export async function buildQueueStats() {
     },
     queues: { notifications, email },
     deadLetter: {
-      size: dlq.failed,
+      size: dlqSize,
       warnThreshold: DLQ_WARN_THRESHOLD,
       failThreshold: DLQ_FAIL_THRESHOLD,
     },
@@ -336,17 +340,21 @@ operationsServiceRouter.post("/dead-letters/requeue", async (req, res) => {
   };
 
   const channel = data.channel as "in_app" | "email" | "push";
-  const { enqueueNotification } = await import("../lib/queue.js");
+  const { enqueueNotification, jobIdFor } = await import("../lib/queue.js");
 
+  // A fresh id and a fresh set of attempts. Under the default id the add is a
+  // silent no-op while the original job is still retained, and the dead-letter
+  // entry removed below would be the last trace of the notification.
   await enqueueNotification(
     {
       notificationId: data.notificationId,
       userId: data.userId,
       channel,
       priority: data.priority,
-      attempt: data.attempt,
+      attempt: 1,
     },
     0,
+    `${jobIdFor({ notificationId: data.notificationId, channel })}@requeue-${Date.now()}`,
   );
 
   await job.remove();

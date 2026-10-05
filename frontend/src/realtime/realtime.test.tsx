@@ -99,7 +99,7 @@ function fireManager(event: string): void {
 
 function sessionStubs() {
   return routes(
-    ["/auth/session", TEST_USER],
+    ["/auth/session", { user: TEST_USER }],
     ["/notifications/unread-count", { unreadCount: 0 }],
     ["/notifications?", pageOf([], 0)],
   );

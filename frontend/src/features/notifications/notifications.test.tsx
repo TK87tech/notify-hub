@@ -29,7 +29,7 @@ afterEach(() => {
 
 /** Endpoints every signed-in test needs, so each test only adds its own. */
 function sessionRoutes() {
-  return routes(["/auth/session", TEST_USER]);
+  return routes(["/auth/session", { user: TEST_USER }]);
 }
 
 describe("NotificationBell", () => {
