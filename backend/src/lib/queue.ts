@@ -123,28 +123,33 @@ export function createBullMqConnection(): Redis {
  * importing a module that talks about queues does not open a Redis connection.
  * Tests import the Express app, which imports the routes, without a broker.
  */
-interface QueueOptions {
-  limiter?: { max: number; duration: number };
-}
-
-function lazyQueue(name: string, opts: QueueOptions = {}) {
+function lazyQueue(name: string) {
   let queue: Queue | null = null;
 
   return (): Queue => {
     if (!queue) {
-      queue = new Queue(name, {
-        connection: createBullMqConnection(),
-        ...(opts.limiter ? { limiter: opts.limiter } : {}),
-      });
+      queue = new Queue(name, { connection: createBullMqConnection() });
     }
     return queue;
   };
 }
 
+/**
+ * The rate limit for a queue's Worker, or undefined for none.
+ *
+ * BullMQ enforces a limiter only on the Worker. It used to be passed to the
+ * email Queue, which accepts and ignores it - so Brevo's pacing was never
+ * applied and a burst went out as fast as the worker could send. The worker
+ * reads it from here; tests/queue.test.ts pins it.
+ */
+export function workerLimiterFor(queueName: string): { max: number; duration: number } | undefined {
+  return queueName === emailQueueName
+    ? { max: env.EMAIL_RATE_MAX, duration: env.EMAIL_RATE_WINDOW_MS }
+    : undefined;
+}
+
 const getNotificationsQueue = lazyQueue(notificationQueueName);
-const getEmailQueue = lazyQueue(emailQueueName, {
-  limiter: { max: env.EMAIL_RATE_MAX, duration: env.EMAIL_RATE_WINDOW_MS },
-});
+const getEmailQueue = lazyQueue(emailQueueName);
 const getDeadLetterQueue = lazyQueue(deadLetterQueueName);
 
 export const notificationQueue = getNotificationsQueue;

@@ -14,6 +14,7 @@
     "test:watch": "vitest",
     "token": "tsx scripts/dev-token.ts",
     "alert": "tsx scripts/alert.ts",
+    "load-test": "tsx scripts/load-test.ts",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:generate": "prisma generate",
