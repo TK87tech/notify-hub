@@ -41,6 +41,12 @@ export const REQUEST_TIMEOUT_MS = 45_000;
 export class ApiError extends Error {
   readonly status: number;
   readonly code: ApiErrorCode;
+  /**
+   * The bearer token the failed request carried (null when it had none). A 401
+   * only means "this token is no good" - not "sign the user out" - so the
+   * sign-out handler compares this with the token held now.
+   */
+  sentToken: string | null = null;
 
   constructor(status: number, code: ApiErrorCode, message: string) {
     super(message);
@@ -91,11 +97,9 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
   if (body !== undefined) headers["content-type"] = "application/json";
 
-  if (!anonymous) {
-    const token = readToken();
+  const token = anonymous ? null : readToken();
 
-    if (token) headers.authorization = `Bearer ${token}`;
-  }
+  if (token) headers.authorization = `Bearer ${token}`;
 
   // A caller-supplied signal (TanStack Query passes one) and a timeout are
   // combined rather than replacing each other: the timeout stops a wedged
@@ -135,11 +139,15 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   if (!response.ok) {
     const details = await readErrorBody(response);
 
-    throw new ApiError(
+    const error = new ApiError(
       response.status,
       details.code ?? `http_${response.status}`,
       details.message ?? defaultMessage(response.status),
     );
+
+    error.sentToken = token;
+
+    throw error;
   }
 
   // 204 and friends have no body; anything else must be JSON or the contract
