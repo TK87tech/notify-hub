@@ -54,6 +54,7 @@ import {
   notificationQueueName,
   parkJob,
   queueForChannel,
+  workerLimiterFor,
 } from "../src/lib/queue.js";
 
 const job = {
@@ -186,33 +187,30 @@ describe("priority and delay together", () => {
   });
 });
 
+describe("email rate limit", () => {
+  it("is a worker option for the email queue only", () => {
+    // BullMQ ignores a limiter on the Queue, so this is the only place it works.
+    expect(workerLimiterFor(emailQueueName)).toEqual({ max: 20, duration: 60_000 });
+    expect(workerLimiterFor(notificationQueueName)).toBeUndefined();
+  });
+});
+
 describe("queue routing", () => {
   it("puts email on its own queue so the Brevo limit cannot stall in-app delivery", () => {
     expect(queueForChannel("email")).toBe(queueForChannel("email"));
     expect(queueForChannel("in_app")).not.toBe(queueForChannel("email"));
   });
 
-  it("gives the email queue a rate limiter and the others none", () => {
+  it("puts no limiter on any Queue, where BullMQ would silently ignore it", () => {
     queueForChannel("email");
     queueForChannel("in_app");
-    queueForChannel("push");
     deadLetterQueue();
 
-    const optionsFor = (name: string) =>
-      mocks.constructed.find((entry) => entry.name === name)!.options;
-
-    expect(optionsFor(emailQueueName).limiter).toMatchObject({
-      max: expect.any(Number),
-      duration: expect.any(Number),
-    });
-
-    // A limiter on the shared queue would hold up in-app delivery behind the
-    // email budget, which is exactly what the separate queue exists to prevent.
-    expect(optionsFor(notificationQueueName)).not.toHaveProperty("limiter");
-
-    // Nothing reads the dead-letter queue but a human and the health endpoint,
-    // so limiting it would only slow down the evidence.
-    expect(optionsFor(deadLetterQueueName)).not.toHaveProperty("limiter");
+    // The email limit lives on the Worker (workerLimiterFor, above). A limiter
+    // here is accepted, does nothing, and reads as if Brevo were protected.
+    for (const name of [emailQueueName, notificationQueueName, deadLetterQueueName]) {
+      expect(mocks.constructed.find((entry) => entry.name === name)!.options).not.toHaveProperty("limiter");
+    }
   });
 
   it("opens one connection per queue and never more", () => {

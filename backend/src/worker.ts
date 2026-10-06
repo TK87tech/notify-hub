@@ -24,6 +24,7 @@ import {
   emailQueueName,
   MAX_ATTEMPTS,
   notificationQueueName,
+  workerLimiterFor,
   type NotificationJobData,
 } from "./lib/queue.js";
 import { closeRedis } from "./lib/redis.js";
@@ -35,8 +36,14 @@ import { processJob } from "./worker/process-job.js";
  * rate limiter.
  */
 function createWorker(queueName: string) {
+  const limiter = workerLimiterFor(queueName);
+
   const worker = new Worker<NotificationJobData>(queueName, processJob, {
     connection: createBullMqConnection(),
+
+    // Brevo's short-window pacing, on the email worker only. It has to be here:
+    // BullMQ ignores a limiter given to the Queue.
+    ...(limiter ? { limiter } : {}),
 
     /**
      * One job at a time by default. Concurrency is where "the same email went
