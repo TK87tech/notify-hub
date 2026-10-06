@@ -142,18 +142,29 @@ function prependNotification(
   notification: Notification,
   unreadCount: number,
 ): void {
-  queryClient.setQueriesData({ queryKey: queryKeys.notifications.root }, (old: unknown) => {
+  // Per list, because each list has its own filter. A comment must not appear
+  // in a list filtered to payments, and an event replayed after a reconnect
+  // (connection-state recovery) must not add the same row twice. The unread
+  // count is global, so every list takes it either way.
+  for (const [key, old] of queryClient.getQueriesData({ queryKey: queryKeys.notifications.root })) {
     const cache = old as NotificationCache | undefined;
 
-    if (!cache?.pages) return old;
+    if (!cache?.pages) continue;
 
-    return {
+    const filter = (key[2] ?? {}) as { type?: string };
+    const belongs = !filter.type || filter.type === notification.type;
+    const seen = cache.pages.some((page) => page.items.some((item) => item.id === notification.id));
+    const add = belongs && !seen;
+
+    queryClient.setQueryData(key, {
       ...cache,
       pages: cache.pages.map((page, index) =>
-        index === 0 ? { ...page, unreadCount, items: [notification, ...page.items] } : page,
+        index === 0
+          ? { ...page, unreadCount, items: add ? [notification, ...page.items] : page.items }
+          : page,
       ),
-    };
-  });
+    });
+  }
 
   setUnread(queryClient, unreadCount);
 }
