@@ -14,7 +14,7 @@
 import { QueryClient, QueryCache, MutationCache } from "@tanstack/react-query";
 
 import { ApiError } from "./client";
-import { clearToken } from "./token";
+import { clearToken, readToken } from "./token";
 
 /** Called by AuthProvider so a rejected token re-renders the tree. */
 type SignOutListener = () => void;
@@ -38,8 +38,13 @@ export function onSignedOut(listener: SignOutListener): () => void {
   };
 }
 
-function handleRejectedToken(error: unknown): void {
+export function handleRejectedToken(error: unknown): void {
   if (!(error instanceof ApiError) || !error.isUnauthorized) return;
+
+  // A 401 for a token we no longer hold is stale news. On a cold Render start
+  // a session check can take 30s to answer; by then the user may have signed
+  // in or up, and acting on it would throw away the brand-new session.
+  if (error.sentToken !== readToken()) return;
 
   clearToken();
 

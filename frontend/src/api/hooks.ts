@@ -34,6 +34,7 @@ import {
   type ListNotificationsParams,
 } from "./endpoints";
 import { queryKeys } from "./query-keys";
+import { hasUsableToken } from "./token";
 import type { Notification } from "./types";
 
 /** How often the unread badge re-checks while the tab is visible. */
@@ -43,6 +44,9 @@ export function useSession() {
   return useQuery({
     queryKey: queryKeys.session,
     queryFn: fetchSession,
+    // Nothing to check without a token, and an anonymous check answering 401
+    // late is exactly what used to sign a fresh sign-up straight back out.
+    enabled: hasUsableToken(),
     // A 401 here means the stored token is no longer good, which the auth
     // provider handles by signing out. Retrying would just produce more 401s.
     retry: false,
