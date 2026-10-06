@@ -213,6 +213,31 @@ describe("NotificationBell", () => {
   });
 });
 
+describe("NotificationBell keyboard access", () => {
+  it("opens from the keyboard, and Escape closes it and returns focus to the bell", async () => {
+    const user = userEvent.setup();
+
+    renderWithProviders(<NotificationBell />, {
+      routes: {
+        ...sessionRoutes(),
+        ...routes(["/notifications/unread-count", { unreadCount: 0 }], ["/notifications?", pageOf([], 0)]),
+      },
+    });
+
+    const bell = await screen.findByRole("button", { name: "Notifications" });
+
+    await user.tab();
+    expect(bell).toHaveFocus();
+
+    await user.keyboard("{Enter}");
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(bell).toHaveFocus();
+  });
+});
+
 describe("NotificationRow", () => {
   it("announces unread state rather than relying on colour alone", () => {
     renderWithProviders(<NotificationRow notification={makeNotification({ read: false })} />);

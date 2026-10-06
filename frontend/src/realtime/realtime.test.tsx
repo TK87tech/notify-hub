@@ -18,6 +18,7 @@ import { useRealtime } from "@/realtime/realtime-context";
 import { REALTIME_EVENTS } from "@/realtime/events";
 import { queryKeys } from "@/api/query-keys";
 import { writeToken } from "@/api/token";
+import { toast } from "sonner";
 import {
   makeNotification,
   pageOf,
@@ -40,6 +41,12 @@ const mocks = vi.hoisted(() => ({
   auth: {} as Record<string, unknown>,
   close: vi.fn(),
   connectArgs: [] as unknown[],
+}));
+
+// The real Toaster still renders; only the call is observed.
+vi.mock("sonner", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("sonner")>()),
+  toast: vi.fn(),
 }));
 
 vi.mock("socket.io-client", () => ({
@@ -262,5 +269,100 @@ describe("RealtimeProvider cache updates", () => {
 
     expect(cached?.pages[0].items.every((item) => item.read)).toBe(true);
     expect(queryClient.getQueryData(queryKeys.notifications.unread)).toEqual({ unreadCount: 0 });
+  });
+});
+
+describe("RealtimeProvider de-duplication and filters", () => {
+  function seedLists(client: QueryClient) {
+    const lists = {
+      all: queryKeys.notifications.list({ limit: 20 }),
+      payments: queryKeys.notifications.list({ limit: 20, type: "payment_received" }),
+    };
+
+    for (const key of Object.values(lists)) {
+      client.setQueryData(key, { pages: [pageOf([makeNotification({ id: "older" })], 1)], pageParams: [undefined] });
+    }
+
+    return lists;
+  }
+
+  const ids = (client: QueryClient, key: readonly unknown[]) =>
+    client.getQueryData<{ pages: { items: { id: string }[] }[] }>(key)?.pages[0].items.map((item) => item.id);
+
+  it("adds a replayed event only once", async () => {
+    writeToken(validToken());
+    const { queryClient } = renderWithProviders(<StateProbe />, { withRealtime: true, routes: sessionStubs() });
+    const { all } = seedLists(queryClient);
+
+    const event = { notification: makeNotification({ id: "n1", type: "comment" }), unreadCount: 2 };
+    fire(REALTIME_EVENTS.notificationNew, event);
+    fire(REALTIME_EVENTS.notificationNew, event);
+
+    expect(ids(queryClient, all)).toEqual(["n1", "older"]);
+  });
+
+  it("keeps a notification out of a list filtered to another type, but still updates its count", async () => {
+    writeToken(validToken());
+    const { queryClient } = renderWithProviders(<StateProbe />, { withRealtime: true, routes: sessionStubs() });
+    const { payments } = seedLists(queryClient);
+
+    fire(REALTIME_EVENTS.notificationNew, {
+      notification: makeNotification({ id: "c1", type: "comment" }),
+      unreadCount: 5,
+    });
+
+    expect(ids(queryClient, payments)).toEqual(["older"]);
+    expect(
+      queryClient.getQueryData<{ pages: { unreadCount?: number }[] }>(payments)?.pages[0].unreadCount,
+    ).toBe(5);
+  });
+});
+
+describe("RealtimeProvider catch-up after a dropped connection", () => {
+  it("marks the lists stale on reconnect, not on the first connect", async () => {
+    writeToken(validToken());
+    const { queryClient } = renderWithProviders(<StateProbe />, { withRealtime: true, routes: sessionStubs() });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+
+    fire("connect");
+    await waitFor(() => expect(screen.getByTestId("state")).toHaveTextContent("connected"));
+    expect(invalidate).not.toHaveBeenCalled();
+
+    fire("disconnect");
+    fire("connect");
+
+    // Whatever arrived while offline is refetched, rather than waiting for a
+    // manual refresh.
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.notifications.root });
+  });
+});
+
+describe("RealtimeProvider toasts", () => {
+  beforeEach(() => vi.mocked(toast).mockClear());
+
+  function announce(overrides: Parameters<typeof makeNotification>[0]) {
+    writeToken(validToken());
+    renderWithProviders(<StateProbe />, { withRealtime: true, routes: sessionStubs() });
+    fire(REALTIME_EVENTS.notificationNew, { notification: makeNotification(overrides), unreadCount: 1 });
+
+    return vi.mocked(toast).mock.calls.at(-1)!;
+  }
+
+  it("shows the title and body, and dismisses a normal one after a few seconds", () => {
+    const [title, options] = announce({ id: "t1", title: "Task assigned", body: "Review the PR", priority: "normal" });
+
+    expect(title).toBe("Task assigned");
+    expect(options).toMatchObject({ description: "Review the PR", duration: 5_000, id: "t1" });
+  });
+
+  it("never auto-dismisses an urgent one", () => {
+    const [, options] = announce({ priority: "urgent" });
+
+    expect(options?.duration).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it("offers View for an http(s) link but not for a javascript: one", () => {
+    expect(announce({ link: "/tasks/1" })[1]?.action).toMatchObject({ label: "View" });
+    expect(announce({ link: "javascript:alert(1)" })[1]?.action).toBeUndefined();
   });
 });
